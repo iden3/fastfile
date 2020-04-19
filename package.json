@@ -1,0 +1,30 @@
+{
+  "name": "fastfile",
+  "version": "0.0.1",
+  "description": "fast cached read write of big binary files",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha"
+  },
+  "keywords": [
+    "file",
+    "io",
+    "large",
+    "binary",
+    "cache",
+    "random"
+  ],
+  "author": "0kims",
+  "license": "GPL-3.0",
+  "dependencies": {
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iden3/fastfile.git"
+  },
+  "devDependencies": {
+    "eslint": "^6.8.0",
+    "ffjavascript": "^0.1.0",
+    "tmp-promise": "^2.0.2"
+  }
+}
