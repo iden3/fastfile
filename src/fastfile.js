@@ -25,30 +25,30 @@ module.exports.readWriteExistingOrCreate = function readExisting(fileName,cacheS
 module.exports.open = open;
 
 async function open(fileName, openFlags, cacheSize) {
-    cacheSize = cacheSize || 4096*1000;
+    cacheSize = cacheSize || 4096*64;
     assert(["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) >= 0);
     const fd =await fs.promises.open(fileName, openFlags);
 
     const stats = await fd.stat();
 
-    return  new FastFile(fd, stats, cacheSize);
+    return  new FastFile(fd, stats, cacheSize, fileName);
 }
 
 class FastFile {
 
-    constructor(fd, stats, cacheSize) {
+    constructor(fd, stats, cacheSize, fileName) {
+        this.fileName = fileName;
         this.fd = fd;
         this.pos = 0;
         this.pageBits = 8;
         this.pageSize = (1 << this.pageBits);
-        while (this.pageSize < stats.blksize) {
+        while (this.pageSize < stats.blksize*4) {
             this.pageBits ++;
             this.pageSize *= 2;
         }
-        this.pageMask = this.pageSize -1;
         this.totalSize = stats.size;
         this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
-        this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize);
+        this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
         this.pages = {};
         this.pendingLoads = [];
         this.writing = false;
@@ -63,7 +63,7 @@ class FastFile {
                 resolve: resolve,
                 reject: reject
             });
-            self._triggerLoad();
+            setImmediate(self._triggerLoad.bind(self));
         });
     }
 
@@ -74,14 +74,17 @@ class FastFile {
         if (self.pendingLoads.length == 0) return;
         if (Object.keys(self.pages).length >= self.maxPagesLoaded) {
             const dp = getDeletablePage();
-            if (dp<0) return;   // No sizes available
+            if (dp<0) {  // // No sizes available
+//                setTimeout(self._triggerLoad.bind(self), 10000);
+                return;
+            }
             delete self.pages[dp];
         }
         const load = self.pendingLoads.shift();
         if (load.page>=self.totalPages) {
             self.pages[load.page] = {
                 dirty: false,
-                buff: Buffer.alloc(self.pageSize),
+                buff: new Uint8Array(self.pageSize),
                 pendingOps: 1,
                 size: 0
             };
@@ -89,12 +92,15 @@ class FastFile {
             setImmediate(self._triggerLoad.bind(self));
             return;
         }
-        if (self.reading) return;  // Only one read at a time.
+        if (self.reading) {
+            self.pendingLoads.unshift(load);
+            return;  // Only one read at a time.
+        }
 
         self.reading = true;
         const page = {
             dirty: false,
-            buff: Buffer.alloc(self.pageSize),
+            buff: new Uint8Array(self.pageSize),
             pendingOps: 1,
             size: 0
         };
@@ -146,6 +152,7 @@ class FastFile {
             setImmediate(self._triggerWrite.bind(self));
             setImmediate(self._triggerLoad.bind(self));
         }, (err) => {
+            console.log("ERROR Writing: "+err);
             self.error = err;
             self._tryClose();
         });
@@ -161,53 +168,71 @@ class FastFile {
 
     async write(buff, pos) {
         const self = this;
+        if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(buff.byteLength * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
+        if (typeof pos == "undefined") pos = self.pos;
+        self.pos = pos+buff.byteLength;
+        if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
         assert(!self.pendingClose);
-        const firstPage = pos >> self.pageBits;
-        const lastPage = (pos+buff.length-1) >> self.pageBits;
+        const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos+buff.byteLength-1) / self.pageSize);
 
         for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
 
         let p = firstPage;
-        let o = pos & self.pageMask;
-        let r = buff.length;
+        let o = pos % self.pageSize;
+        let r = buff.byteLength;
         while (r>0) {
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
-            buff.copy(self.pages[p].buff, o, buff.length - r, buff.length-r+l);
+            const srcView = new Uint8Array(buff.buffer, buff.byteLength - r, l);
+            const dstView = new Uint8Array(self.pages[p].buff.buffer, o, l);
+            dstView.set(srcView);
             self.pages[p].dirty = true;
             self.pages[p].pendingOps --;
             self.pages[p].size = Math.max(o+l, self.pages[p].size);
             if (p>=self.totalPages) {
                 self.totalPages = p+1;
-                self.totalSize = (self.totalPages - 1)* self.pageSize + self.pages[p].size;
             }
             r = r-l;
             p ++;
             o = 0;
         }
-        self._triggerWrite();
+        setImmediate(self._triggerWrite.bind(self));
     }
 
-    async read(pos, len) {
+    async read(len, pos) {
         const self = this;
+        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(len * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
+        if (typeof pos == "undefined") pos = self.pos;
+        self.pos = pos+len;
         assert(!self.pendingClose);
-        const firstPage = pos >> self.pageBits;
-        const lastPage = (pos+len-1) >> self.pageBits;
+        const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos+len-1) / self.pageSize);
 
         for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
 
-        let buff = Buffer.allocUnsafe(len);
+        let buff = new Uint8Array(len);
+        let dstView = new Uint8Array(buff);
         let p = firstPage;
-        let o = pos & self.pageMask;
+        let o = pos % self.pageSize;
+        // Remaining bytes to read
         let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
         while (r>0) {
+            // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
-            self.pages[p].buff.copy(buff, buff.length -r, o, o +l);
+            const srcView = new Uint8Array(self.pages[p].buff.buffer, o, l);
+            buff.set(srcView, dstView.byteLength-r);
             self.pages[p].pendingOps --;
             r = r-l;
             p ++;
             o = 0;
         }
-        self._triggerLoad();
+        setImmediate(self._triggerLoad.bind(self));
         return buff;
     }
 
@@ -235,6 +260,40 @@ class FastFile {
             self.fd.close();
             throw (err);
         });
+    }
+
+    async writeULE32(v, pos) {
+        const self = this;
+
+        const b = Uint32Array.of(v);
+
+        await self.write(new Uint8Array(b.buffer), pos);
+    }
+
+    async writeULE64(v, pos) {
+        const self = this;
+
+        const b = Uint32Array.of(v & 0xFFFFFFFF, Math.floor(v / 0x100000000));
+
+        await self.write(new Uint8Array(b.buffer), pos);
+    }
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
+    async readULE64(pos) {
+        const self = this;
+        const b = await self.read(8, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[1] * 0x100000000 + view[0];
     }
 
 }

@@ -16,8 +16,7 @@
   ],
   "author": "0kims",
   "license": "GPL-3.0",
-  "dependencies": {
-  },
+  "dependencies": {},
   "repository": {
     "type": "git",
     "url": "https://github.com/iden3/fastfile.git"
