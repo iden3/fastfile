@@ -167,6 +167,7 @@ class FastFile {
     }
 
     async write(buff, pos) {
+        if (buff.byteLength == 0) return;
         const self = this;
         if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
             const cacheSize = Math.floor(buff.byteLength * 1.1);
@@ -203,6 +204,9 @@ class FastFile {
     }
 
     async read(len, pos) {
+        if (len == 0) {
+            return new Uint8Array(0);
+        }
         const self = this;
         if (len > self.pageSize*self.maxPagesLoaded*0.8) {
             const cacheSize = Math.floor(len * 1.1);
