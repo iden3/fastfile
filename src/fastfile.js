@@ -266,6 +266,12 @@ class FastFile {
         });
     }
 
+    async discard() {
+        const self = this;
+        await self.close();
+        await fs.promises.unlink(this.fileName);
+    }
+
     async writeULE32(v, pos) {
         const self = this;
 
@@ -273,6 +279,17 @@ class FastFile {
 
         await self.write(new Uint8Array(b.buffer), pos);
     }
+
+    async writeUBE32(v, pos) {
+        const self = this;
+
+        const buff = new Uint8Array(4);
+        const buffV = new DataView(buff);
+        buffV.setUint32(0, v, false);
+
+        await self.write(buff, pos);
+    }
+
 
     async writeULE64(v, pos) {
         const self = this;
@@ -289,6 +306,15 @@ class FastFile {
         const view = new Uint32Array(b.buffer);
 
         return view[0];
+    }
+
+    async readUBE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new DataView(b.buffer);
+
+        return view.getUint32(0, false);
     }
 
     async readULE64(pos) {
