@@ -284,7 +284,7 @@ class FastFile {
         const self = this;
 
         const buff = new Uint8Array(4);
-        const buffV = new DataView(buff);
+        const buffV = new DataView(buff.buffer);
         buffV.setUint32(0, v, false);
 
         await self.write(buff, pos);
