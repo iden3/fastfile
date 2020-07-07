@@ -1,24 +1,21 @@
 /* globals BigInt */
-const assert = require("assert");
-const fs = require("fs");
+import assert from "assert";
+import fs from "fs";
 
-const fastFile = require("../src/fastfile");
+import * as fastFile from "../src/fastfile.js";
 
-const Scalar = require("ffjavascript").Scalar;
-const F1Field = require("ffjavascript").F1Field;
+import { Scalar, F1Field } from "ffjavascript";
 
-const tmp = require("tmp-promise");
+import tmp from "tmp-promise";
 
 
 const q = Scalar.fromString("21888242871839275222246405745257275088548364400416034343698204186575808495617");
-const F = new F1Field(q)
+const F = new F1Field(q);
 
 async function writeBigInt(f, n, pos) {
     const n8 = 32;
-    const s = n.toString(16);
-    const b = Buffer.from(s.padStart(n8*2, "0"), "hex");
-    const buff = Buffer.allocUnsafe(b.length);
-    for (let i=0; i<b.length; i++) buff[i] = b[b.length-1-i];
+    const buff = new Uint8Array(n8);
+    Scalar.toRprLE(buff, 0, n, n8);
 
     await f.write(buff, pos);
 }
@@ -26,12 +23,10 @@ async function writeBigInt(f, n, pos) {
 async function readBigInt(f, pos) {
     const n8 = 32;
 
-    const buff = await f.read(pos, n8);
-    assert(buff.length == n8);
-    const buffR = Buffer.allocUnsafe(n8);
-    for (let i=0; i<n8; i++) buffR[i] = buff[n8-1-i];
+    const buff = await f.read(n8, pos);
+    assert(buff.byteLength == n8);
 
-    return BigInt("0x" + buffR.toString("hex"));
+    return Scalar.fromRprLE(buff, 0);
 }
 
 describe("fastfile test", function () {

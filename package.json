@@ -1,10 +1,17 @@
 {
   "name": "fastfile",
+  "type": "module",
   "version": "0.0.2",
   "description": "fast cached read write of big binary files",
-  "main": "index.js",
+  "main": "./build/main.cjs",
+  "module": "./src/fastfile.js",
+  "exports": {
+    "import": "./src/fastfile.js",
+    "require": "./build/main.cjs"
+  },
   "scripts": {
-    "test": "mocha"
+    "test": "mocha",
+    "build": "rollup -c rollup.cjs.config.js"
   },
   "keywords": [
     "file",
@@ -24,6 +31,10 @@
   "devDependencies": {
     "eslint": "^6.8.0",
     "ffjavascript": "^0.1.0",
+    "mocha": "^8.0.1",
+    "rollup": "^2.20.0",
+    "rollup-plugin-commonjs": "^10.1.0",
+    "rollup-plugin-node-resolve": "^5.2.0",
     "tmp-promise": "^2.0.2"
   }
 }
