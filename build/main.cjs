@@ -488,6 +488,12 @@ function createNoOverride(o, b) {
 }
 
 function readExisting$1(o, b) {
+    if (o instanceof Uint8Array) {
+        o = {
+            type: "mem",
+            data: o
+        };
+    }
     if (typeof o === "string") {
         o = {
             type: "file",
