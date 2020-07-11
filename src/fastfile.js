@@ -2,7 +2,7 @@ import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 
 
-async function createOverride(o, b) {
+export async function createOverride(o, b) {
     if (typeof o === "string") {
         o = {
             type: "file",
@@ -19,7 +19,7 @@ async function createOverride(o, b) {
     }
 }
 
-function createNoOverride(o, b) {
+export function createNoOverride(o, b) {
     if (typeof o === "string") {
         o = {
             type: "file",
@@ -36,7 +36,7 @@ function createNoOverride(o, b) {
     }
 }
 
-function readExisting(o, b) {
+export function readExisting(o, b) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
@@ -59,7 +59,7 @@ function readExisting(o, b) {
     }
 }
 
-function readWriteExisting(o, b) {
+export function readWriteExisting(o, b) {
     if (typeof o === "string") {
         o = {
             type: "file",
@@ -76,7 +76,7 @@ function readWriteExisting(o, b) {
     }
 }
 
-function readWriteExistingOrCreate(o, b) {
+export function readWriteExistingOrCreate(o, b) {
     if (typeof o === "string") {
         o = {
             type: "file",
@@ -92,11 +92,3 @@ function readWriteExistingOrCreate(o, b) {
         throw new Error("Invalid FastFile type: "+o.type);
     }
 }
-
-export default {
-    createOverride,
-    createNoOverride,
-    readExisting,
-    readWriteExisting,
-    readWriteExistingOrCreate
-};

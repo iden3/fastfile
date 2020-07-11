@@ -1,5 +1,7 @@
 'use strict';
 
+Object.defineProperty(exports, '__esModule', { value: true });
+
 function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
 
 var fs = _interopDefault(require('fs'));
@@ -371,11 +373,11 @@ class MemFile {
 
         this._resizeIfNeeded(pos + buff.byteLength);
 
-        this.o.data.set(buff, this.pos);
+        this.o.data.set(buff, pos);
 
-        if (this.pos + buff.byteLength > this.totalSize) this.totalSize = this.pos + buff.byteLength;
+        if (pos + buff.byteLength > this.totalSize) this.totalSize = pos + buff.byteLength;
 
-        this.pos += buff.byteLength;
+        this.pos = pos + buff.byteLength;
     }
 
     async read(len, pos) {
@@ -387,11 +389,14 @@ class MemFile {
         this._resizeIfNeeded(pos + len);
 
         const buff = this.o.data.slice(pos, pos+len);
-        this.pos += len;
+        this.pos = pos + len;
         return buff;
     }
 
     close() {
+        if (this.o.data.byteLength != this.totalSize) {
+            this.o.data = this.o.data.slice(0, this.totalSize);
+        }
     }
 
     async discard() {
@@ -544,12 +549,8 @@ function readWriteExistingOrCreate(o, b) {
     }
 }
 
-var fastfile = {
-    createOverride,
-    createNoOverride,
-    readExisting: readExisting$1,
-    readWriteExisting: readWriteExisting$1,
-    readWriteExistingOrCreate
-};
-
-module.exports = fastfile;
+exports.createNoOverride = createNoOverride;
+exports.createOverride = createOverride;
+exports.readExisting = readExisting$1;
+exports.readWriteExisting = readWriteExisting$1;
+exports.readWriteExistingOrCreate = readWriteExistingOrCreate;

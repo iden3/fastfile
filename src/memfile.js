@@ -57,11 +57,11 @@ class MemFile {
 
         this._resizeIfNeeded(pos + buff.byteLength);
 
-        this.o.data.set(buff, this.pos);
+        this.o.data.set(buff, pos);
 
-        if (this.pos + buff.byteLength > this.totalSize) this.totalSize = this.pos + buff.byteLength;
+        if (pos + buff.byteLength > this.totalSize) this.totalSize = pos + buff.byteLength;
 
-        this.pos += buff.byteLength;
+        this.pos = pos + buff.byteLength;
     }
 
     async read(len, pos) {
@@ -73,11 +73,14 @@ class MemFile {
         this._resizeIfNeeded(pos + len);
 
         const buff = this.o.data.slice(pos, pos+len);
-        this.pos += len;
+        this.pos = pos + len;
         return buff;
     }
 
     close() {
+        if (this.o.data.byteLength != this.totalSize) {
+            this.o.data = this.o.data.slice(0, this.totalSize);
+        }
     }
 
     async discard() {
