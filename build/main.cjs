@@ -458,6 +458,9 @@ class MemFile {
 
 }
 
+/* global fetch */
+
+
 async function createOverride(o, b) {
     if (typeof o === "string") {
         o = {
@@ -492,24 +495,38 @@ function createNoOverride(o, b) {
     }
 }
 
-function readExisting$1(o, b) {
+async function readExisting$1(o, b) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
             data: o
         };
     }
-    if (typeof o === "string") {
-        o = {
-            type: "file",
-            fileName: o,
-            cacheSize: b
-        };
+    if (process.browser) {
+        if (typeof o === "string") {
+            const buff = await fetch(o).then( function(res) {
+                return res.arrayBuffer();
+            }).then(function (ab) {
+                return new Uint8Array(ab);
+            });
+            o = {
+                type: "mem",
+                data: buff
+            };
+        }
+    } else {
+        if (typeof o === "string") {
+            o = {
+                type: "file",
+                fileName: o,
+                cacheSize: b
+            };
+        }
     }
     if (o.type == "file") {
-        return open(o.fileName, "r", o.cacheSize);
+        return await open(o.fileName, "r", o.cacheSize);
     } else if (o.type == "mem") {
-        return readExisting(o);
+        return await readExisting(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
