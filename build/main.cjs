@@ -152,10 +152,12 @@ class FastFile {
     async write(buff, pos) {
         if (buff.byteLength == 0) return;
         const self = this;
+/*
         if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
             const cacheSize = Math.floor(buff.byteLength * 1.1);
             this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
         }
+*/
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+buff.byteLength;
         if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
@@ -164,12 +166,13 @@ class FastFile {
         const firstPage = Math.floor(pos / self.pageSize);
         const lastPage = Math.floor((pos+buff.byteLength-1) / self.pageSize);
 
-        for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
+        // for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
 
         let p = firstPage;
         let o = pos % self.pageSize;
         let r = buff.byteLength;
         while (r>0) {
+            await self._loadPage(p);
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(buff.buffer, buff.byteLength - r, l);
             const dstView = new Uint8Array(self.pages[p].buff.buffer, o, l);
