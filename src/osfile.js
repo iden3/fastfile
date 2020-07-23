@@ -12,6 +12,11 @@ export async function open(fileName, openFlags, cacheSize) {
     return  new FastFile(fd, stats, cacheSize, fileName);
 }
 
+const tmpBuff32 = new Uint8Array(4);
+const tmpBuff32v = new DataView(tmpBuff32.buffer);
+const tmpBuff64 = new Uint8Array(8);
+const tmpBuff64v = new DataView(tmpBuff64.buffer);
+
 class FastFile {
 
     constructor(fd, stats, cacheSize, fileName) {
@@ -36,7 +41,7 @@ class FastFile {
     _loadPage(p) {
         const self = this;
         if (self.pages[p]) {
-            self.pages.p.pendingOps++;
+            self.pages[p].pendingOps++;
             return;
         }
         if (p>=self.totalPages) {
@@ -272,28 +277,27 @@ class FastFile {
     async writeULE32(v, pos) {
         const self = this;
 
-        const b = Uint32Array.of(v);
+        tmpBuff32v.setUint32(0, v, true);
 
-        await self.write(new Uint8Array(b.buffer), pos);
+        await self.write(tmpBuff32, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        const buff = new Uint8Array(4);
-        const buffV = new DataView(buff.buffer);
-        buffV.setUint32(0, v, false);
+        tmpBuff32v.setUint32(0, v, true);
 
-        await self.write(buff, pos);
+        await self.write(tmpBuff32, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        const b = Uint32Array.of(v & 0xFFFFFFFF, Math.floor(v / 0x100000000));
+        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(new Uint8Array(b.buffer), pos);
+        await self.write(tmpBuff64, pos);
     }
 
     async readULE32(pos) {
