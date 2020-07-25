@@ -45,19 +45,6 @@ class FastFile {
 
     _loadPage(p) {
         const self = this;
-        if (self.pages[p]) {
-            self.pages[p].pendingOps++;
-            return;
-        }
-        if (p>=self.totalPages) {
-            self.pages[p] = {
-                dirty: false,
-                buff: new Uint8Array(self.pageSize),
-                pendingOps: 1,
-                size: 0
-            };
-            return;
-        }
         return new Promise((resolve, reject)=> {
             self.pendingLoads.push({
                 page: p,
