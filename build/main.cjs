@@ -441,6 +441,16 @@ class MemFile {
         await self.write(tmpBuff64$1, pos);
     }
 
+
+    async readULE32(pos) {
+        const self = this;
+        const b = await self.read(4, pos);
+
+        const view = new Uint32Array(b.buffer);
+
+        return view[0];
+    }
+
     async readUBE32(pos) {
         const self = this;
         const b = await self.read(4, pos);
