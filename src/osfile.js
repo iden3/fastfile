@@ -272,7 +272,7 @@ class FastFile {
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v.setUint32(0, v, true);
+        tmpBuff32v.setUint32(0, v, false);
 
         await self.write(tmpBuff32, pos);
     }

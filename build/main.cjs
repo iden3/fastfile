@@ -277,7 +277,7 @@ class FastFile {
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v.setUint32(0, v, true);
+        tmpBuff32v.setUint32(0, v, false);
 
         await self.write(tmpBuff32, pos);
     }
@@ -353,6 +353,11 @@ function readWriteExisting(o) {
     return fd;
 }
 
+const tmpBuff32$1 = new Uint8Array(4);
+const tmpBuff32v$1 = new DataView(tmpBuff32$1.buffer);
+const tmpBuff64$1 = new Uint8Array(8);
+const tmpBuff64v$1 = new DataView(tmpBuff64$1.buffer);
+
 class MemFile {
 
     constructor() {
@@ -409,40 +414,31 @@ class MemFile {
     async discard() {
     }
 
+
     async writeULE32(v, pos) {
         const self = this;
 
-        const b = Uint32Array.of(v);
+        tmpBuff32v$1.setUint32(0, v, true);
 
-        await self.write(new Uint8Array(b.buffer), pos);
+        await self.write(tmpBuff32$1, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        const buff = new Uint8Array(4);
-        const buffV = new DataView(buff.buffer);
-        buffV.setUint32(0, v, false);
+        tmpBuff32v$1.setUint32(0, v, false);
 
-        await self.write(buff, pos);
+        await self.write(tmpBuff32$1, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        const b = Uint32Array.of(v & 0xFFFFFFFF, Math.floor(v / 0x100000000));
+        tmpBuff64v$1.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$1.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(new Uint8Array(b.buffer), pos);
-    }
-
-    async readULE32(pos) {
-        const self = this;
-        const b = await self.read(4, pos);
-
-        const view = new Uint32Array(b.buffer);
-
-        return view[0];
+        await self.write(tmpBuff64$1, pos);
     }
 
     async readUBE32(pos) {
