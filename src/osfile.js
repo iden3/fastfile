@@ -164,7 +164,6 @@ class FastFile {
         if (self.pendingClose)
             throw new Error("Writing a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos+buff.byteLength-1) / self.pageSize);
 
         // for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
 
@@ -204,27 +203,24 @@ class FastFile {
         if (self.pendingClose)
             throw new Error("Reading a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
-        const lastPage = Math.floor((pos+len-1) / self.pageSize);
-
-        for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
 
         let buff = new Uint8Array(len);
-        let dstView = new Uint8Array(buff);
         let p = firstPage;
         let o = pos % self.pageSize;
         // Remaining bytes to read
         let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
         while (r>0) {
+            await self._loadPage(p);
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(self.pages[p].buff.buffer, o, l);
-            buff.set(srcView, dstView.byteLength-r);
+            buff.set(srcView, len-r);
             self.pages[p].pendingOps --;
             r = r-l;
             p ++;
             o = 0;
+            setImmediate(self._triggerLoad.bind(self));
         }
-        setImmediate(self._triggerLoad.bind(self));
         return buff;
     }
 

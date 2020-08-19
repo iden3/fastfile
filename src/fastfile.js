@@ -1,6 +1,7 @@
 /* global fetch */
 import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
+import * as bigMemFile from "./bigmemfile.js";
 
 
 export async function createOverride(o, b) {
@@ -15,6 +16,8 @@ export async function createOverride(o, b) {
         return await open(o.fileName, "w+", o.cacheSize);
     } else if (o.type == "mem") {
         return memFile.createNew(o);
+    } else if (o.type == "bigMem") {
+        return bigMemFile.createNew(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -32,6 +35,8 @@ export function createNoOverride(o, b) {
         return open(o.fileName, "wx+", o.cacheSize);
     } else if (o.type == "mem") {
         return memFile.createNew(o);
+    } else if (o.type == "bigMem") {
+        return bigMemFile.createNew(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -69,6 +74,8 @@ export async function readExisting(o, b) {
         return await open(o.fileName, "r", o.cacheSize);
     } else if (o.type == "mem") {
         return await memFile.readExisting(o);
+    } else if (o.type == "bigMem") {
+        return await bigMemFile.readExisting(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -86,6 +93,8 @@ export function readWriteExisting(o, b) {
         return open(o.fileName, "a+", o.cacheSize);
     } else if (o.type == "mem") {
         return memFile.readWriteExisting(o);
+    } else if (o.type == "bigMem") {
+        return bigMemFile.readWriteExisting(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -103,6 +112,8 @@ export function readWriteExistingOrCreate(o, b) {
         return open(o.fileName, "ax+", o.cacheSize);
     } else if (o.type == "mem") {
         return memFile.readWriteExisting(o);
+    } else if (o.type == "bigMem") {
+        return bigMemFile.readWriteExisting(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
