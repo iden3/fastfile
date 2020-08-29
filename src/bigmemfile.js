@@ -86,7 +86,7 @@ class BigMemFile {
         this.pos = pos + buff.byteLength;
     }
 
-    async read(len, pos) {
+    async readToBuffer(buffDst, offset, len, pos) {
         const self = this;
         if (typeof pos == "undefined") pos = self.pos;
         if (this.readOnly) {
@@ -96,7 +96,6 @@ class BigMemFile {
 
         const firstPage = Math.floor(pos / PAGE_SIZE);
 
-        let buff = new Uint8Array(len);
         let p = firstPage;
         let o = pos % PAGE_SIZE;
         // Remaining bytes to read
@@ -105,13 +104,21 @@ class BigMemFile {
             // bytes to copy from this page
             const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
             const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
-            buff.set(srcView, len-r);
+            buffDst.set(srcView, offset+len-r);
             r = r-l;
             p ++;
             o = 0;
         }
 
         this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+        const buff = new Uint8Array(len);
+
+        await self.readToBuffer(buff, 0, len, pos);
+
         return buff;
     }
 

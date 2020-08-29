@@ -1,7 +1,7 @@
 
 import fs from"fs";
 
-export async function open(fileName, openFlags, cacheSize) {
+export async function open(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
@@ -9,7 +9,7 @@ export async function open(fileName, openFlags, cacheSize) {
 
     const stats = await fd.stat();
 
-    return  new FastFile(fd, stats, cacheSize, fileName);
+    return  new FastFile(fd, stats, cacheSize, pageSize, fileName);
 }
 
 const tmpBuff32 = new Uint8Array(4);
@@ -19,14 +19,12 @@ const tmpBuff64v = new DataView(tmpBuff64.buffer);
 
 class FastFile {
 
-    constructor(fd, stats, cacheSize, fileName) {
+    constructor(fd, stats, cacheSize, pageSize, fileName) {
         this.fileName = fileName;
         this.fd = fd;
         this.pos = 0;
-        this.pageBits = 8;
-        this.pageSize = (1 << this.pageBits);
+        this.pageSize = pageSize || (1 << 8);
         while (this.pageSize < stats.blksize*4) {
-            this.pageBits ++;
             this.pageSize *= 2;
         }
         this.totalSize = stats.size;
@@ -190,8 +188,16 @@ class FastFile {
     }
 
     async read(len, pos) {
+        const self = this;
+        let buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    async readToBuffer(buffDst, offset, len, pos) {
         if (len == 0) {
-            return new Uint8Array(0);
+            return;
         }
         const self = this;
         if (len > self.pageSize*self.maxPagesLoaded*0.8) {
@@ -204,7 +210,6 @@ class FastFile {
             throw new Error("Reading a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
 
-        let buff = new Uint8Array(len);
         let p = firstPage;
         let o = pos % self.pageSize;
         // Remaining bytes to read
@@ -214,15 +219,18 @@ class FastFile {
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(self.pages[p].buff.buffer, o, l);
-            buff.set(srcView, len-r);
+            buffDst.set(srcView, offset+len-r);
             self.pages[p].pendingOps --;
             r = r-l;
             p ++;
             o = 0;
             setImmediate(self._triggerLoad.bind(self));
         }
-        return buff;
+
+        this.pos = pos + len;
+
     }
+
 
     _tryClose() {
         const self = this;

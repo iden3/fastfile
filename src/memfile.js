@@ -69,7 +69,7 @@ class MemFile {
         this.pos = pos + buff.byteLength;
     }
 
-    async read(len, pos) {
+    async readToBuffer(buffDest, offset, len, pos) {
         const self = this;
         if (typeof pos == "undefined") pos = self.pos;
         if (this.readOnly) {
@@ -77,8 +77,19 @@ class MemFile {
         }
         this._resizeIfNeeded(pos + len);
 
-        const buff = this.o.data.slice(pos, pos+len);
+        const buffSrc = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + pos, len);
+
+        buffDest.set(buffSrc, offset);
+
         this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+
+        const buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
         return buff;
     }
 

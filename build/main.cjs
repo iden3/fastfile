@@ -6,7 +6,7 @@ function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'defau
 
 var fs = _interopDefault(require('fs'));
 
-async function open(fileName, openFlags, cacheSize) {
+async function open(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
@@ -14,7 +14,7 @@ async function open(fileName, openFlags, cacheSize) {
 
     const stats = await fd.stat();
 
-    return  new FastFile(fd, stats, cacheSize, fileName);
+    return  new FastFile(fd, stats, cacheSize, pageSize, fileName);
 }
 
 const tmpBuff32 = new Uint8Array(4);
@@ -24,14 +24,12 @@ const tmpBuff64v = new DataView(tmpBuff64.buffer);
 
 class FastFile {
 
-    constructor(fd, stats, cacheSize, fileName) {
+    constructor(fd, stats, cacheSize, pageSize, fileName) {
         this.fileName = fileName;
         this.fd = fd;
         this.pos = 0;
-        this.pageBits = 8;
-        this.pageSize = (1 << this.pageBits);
+        this.pageSize = pageSize || (1 << 8);
         while (this.pageSize < stats.blksize*4) {
-            this.pageBits ++;
             this.pageSize *= 2;
         }
         this.totalSize = stats.size;
@@ -195,8 +193,16 @@ class FastFile {
     }
 
     async read(len, pos) {
+        const self = this;
+        let buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
+        return buff;
+    }
+
+    async readToBuffer(buffDst, offset, len, pos) {
         if (len == 0) {
-            return new Uint8Array(0);
+            return;
         }
         const self = this;
         if (len > self.pageSize*self.maxPagesLoaded*0.8) {
@@ -209,7 +215,6 @@ class FastFile {
             throw new Error("Reading a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
 
-        let buff = new Uint8Array(len);
         let p = firstPage;
         let o = pos % self.pageSize;
         // Remaining bytes to read
@@ -219,15 +224,18 @@ class FastFile {
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(self.pages[p].buff.buffer, o, l);
-            buff.set(srcView, len-r);
+            buffDst.set(srcView, offset+len-r);
             self.pages[p].pendingOps --;
             r = r-l;
             p ++;
             o = 0;
             setImmediate(self._triggerLoad.bind(self));
         }
-        return buff;
+
+        this.pos = pos + len;
+
     }
+
 
     _tryClose() {
         const self = this;
@@ -388,7 +396,7 @@ class MemFile {
         this.pos = pos + buff.byteLength;
     }
 
-    async read(len, pos) {
+    async readToBuffer(buffDest, offset, len, pos) {
         const self = this;
         if (typeof pos == "undefined") pos = self.pos;
         if (this.readOnly) {
@@ -396,8 +404,19 @@ class MemFile {
         }
         this._resizeIfNeeded(pos + len);
 
-        const buff = this.o.data.slice(pos, pos+len);
+        const buffSrc = new Uint8Array(this.o.data.buffer, this.o.data.byteOffset + pos, len);
+
+        buffDest.set(buffSrc, offset);
+
         this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+
+        const buff = new Uint8Array(len);
+        await self.readToBuffer(buff, 0, len, pos);
+
         return buff;
     }
 
@@ -555,7 +574,7 @@ class BigMemFile {
         this.pos = pos + buff.byteLength;
     }
 
-    async read(len, pos) {
+    async readToBuffer(buffDst, offset, len, pos) {
         const self = this;
         if (typeof pos == "undefined") pos = self.pos;
         if (this.readOnly) {
@@ -565,7 +584,6 @@ class BigMemFile {
 
         const firstPage = Math.floor(pos / PAGE_SIZE);
 
-        let buff = new Uint8Array(len);
         let p = firstPage;
         let o = pos % PAGE_SIZE;
         // Remaining bytes to read
@@ -574,13 +592,21 @@ class BigMemFile {
             // bytes to copy from this page
             const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
             const srcView = new Uint8Array(self.o.data[p].buffer, o, l);
-            buff.set(srcView, len-r);
+            buffDst.set(srcView, offset+len-r);
             r = r-l;
             p ++;
             o = 0;
         }
 
         this.pos = pos + len;
+    }
+
+    async read(len, pos) {
+        const self = this;
+        const buff = new Uint8Array(len);
+
+        await self.readToBuffer(buff, 0, len, pos);
+
         return buff;
     }
 
@@ -650,16 +676,17 @@ class BigMemFile {
 /* global fetch */
 
 
-async function createOverride(o, b) {
+async function createOverride(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {
-        return await open(o.fileName, "w+", o.cacheSize);
+        return await open(o.fileName, "w+", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return createNew(o);
     } else if (o.type == "bigMem") {
@@ -669,16 +696,17 @@ async function createOverride(o, b) {
     }
 }
 
-function createNoOverride(o, b) {
+function createNoOverride(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, "wx+", o.cacheSize);
+        return open(o.fileName, "wx+", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return createNew(o);
     } else if (o.type == "bigMem") {
@@ -688,7 +716,7 @@ function createNoOverride(o, b) {
     }
 }
 
-async function readExisting$2(o, b) {
+async function readExisting$2(o, b, c) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
@@ -712,12 +740,13 @@ async function readExisting$2(o, b) {
             o = {
                 type: "file",
                 fileName: o,
-                cacheSize: b
+                cacheSize: b,
+                pageSize: c || (1 << 24)
             };
         }
     }
     if (o.type == "file") {
-        return await open(o.fileName, "r", o.cacheSize);
+        return await open(o.fileName, "r", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return await readExisting(o);
     } else if (o.type == "bigMem") {
@@ -727,16 +756,17 @@ async function readExisting$2(o, b) {
     }
 }
 
-function readWriteExisting$2(o, b) {
+function readWriteExisting$2(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, "a+", o.cacheSize);
+        return open(o.fileName, "a+", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return readWriteExisting(o);
     } else if (o.type == "bigMem") {
@@ -746,12 +776,13 @@ function readWriteExisting$2(o, b) {
     }
 }
 
-function readWriteExistingOrCreate(o, b) {
+function readWriteExistingOrCreate(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {

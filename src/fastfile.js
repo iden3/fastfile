@@ -4,16 +4,17 @@ import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
 
 
-export async function createOverride(o, b) {
+export async function createOverride(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {
-        return await open(o.fileName, "w+", o.cacheSize);
+        return await open(o.fileName, "w+", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return memFile.createNew(o);
     } else if (o.type == "bigMem") {
@@ -23,16 +24,17 @@ export async function createOverride(o, b) {
     }
 }
 
-export function createNoOverride(o, b) {
+export function createNoOverride(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, "wx+", o.cacheSize);
+        return open(o.fileName, "wx+", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return memFile.createNew(o);
     } else if (o.type == "bigMem") {
@@ -42,7 +44,7 @@ export function createNoOverride(o, b) {
     }
 }
 
-export async function readExisting(o, b) {
+export async function readExisting(o, b, c) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
@@ -66,12 +68,13 @@ export async function readExisting(o, b) {
             o = {
                 type: "file",
                 fileName: o,
-                cacheSize: b
+                cacheSize: b,
+                pageSize: c || (1 << 24)
             };
         }
     }
     if (o.type == "file") {
-        return await open(o.fileName, "r", o.cacheSize);
+        return await open(o.fileName, "r", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return await memFile.readExisting(o);
     } else if (o.type == "bigMem") {
@@ -81,16 +84,17 @@ export async function readExisting(o, b) {
     }
 }
 
-export function readWriteExisting(o, b) {
+export function readWriteExisting(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, "a+", o.cacheSize);
+        return open(o.fileName, "a+", o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return memFile.readWriteExisting(o);
     } else if (o.type == "bigMem") {
@@ -100,12 +104,13 @@ export function readWriteExisting(o, b) {
     }
 }
 
-export function readWriteExistingOrCreate(o, b) {
+export function readWriteExistingOrCreate(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b
+            cacheSize: b,
+            pageSize: c
         };
     }
     if (o.type == "file") {
