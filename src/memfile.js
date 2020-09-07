@@ -62,7 +62,7 @@ class MemFile {
 
         this._resizeIfNeeded(pos + buff.byteLength);
 
-        this.o.data.set(buff, pos);
+        this.o.data.set(buff.slice(), pos);
 
         if (pos + buff.byteLength > this.totalSize) this.totalSize = pos + buff.byteLength;
 

@@ -176,7 +176,7 @@ class FastFile {
         while (r>0) {
             await self._loadPage(p);
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
-            const srcView = new Uint8Array(buff.buffer, buff.byteLength - r, l);
+            const srcView = buff.slice( buff.byteLength - r, buff.byteLength - r + l);
             const dstView = new Uint8Array(self.pages[p].buff.buffer, o, l);
             dstView.set(srcView);
             self.pages[p].dirty = true;
@@ -389,7 +389,7 @@ class MemFile {
 
         this._resizeIfNeeded(pos + buff.byteLength);
 
-        this.o.data.set(buff, pos);
+        this.o.data.set(buff.slice(), pos);
 
         if (pos + buff.byteLength > this.totalSize) this.totalSize = pos + buff.byteLength;
 
@@ -563,7 +563,7 @@ class BigMemFile {
         let r = buff.byteLength;
         while (r>0) {
             const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
-            const srcView = new Uint8Array(buff.buffer, buff.byteLength - r, l);
+            const srcView = buff.slice(buff.byteLength - r, buff.byteLength - r + l);
             const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
             dstView.set(srcView);
             r = r-l;
@@ -682,7 +682,7 @@ async function createOverride(o, b, c) {
             type: "file",
             fileName: o,
             cacheSize: b,
-            pageSize: c
+            pageSize: c || (1 << 24)
         };
     }
     if (o.type == "file") {
@@ -702,7 +702,7 @@ function createNoOverride(o, b, c) {
             type: "file",
             fileName: o,
             cacheSize: b,
-            pageSize: c
+            pageSize: c || (1 << 24)
         };
     }
     if (o.type == "file") {
@@ -762,7 +762,7 @@ function readWriteExisting$2(o, b, c) {
             type: "file",
             fileName: o,
             cacheSize: b,
-            pageSize: c
+            pageSize: c || (1 << 24)
         };
     }
     if (o.type == "file") {
@@ -782,7 +782,7 @@ function readWriteExistingOrCreate(o, b, c) {
             type: "file",
             fileName: o,
             cacheSize: b,
-            pageSize: c
+            pageSize: c || (1 << 24)
         };
     }
     if (o.type == "file") {

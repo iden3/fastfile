@@ -75,7 +75,7 @@ class BigMemFile {
         let r = buff.byteLength;
         while (r>0) {
             const l = (o+r > PAGE_SIZE) ? (PAGE_SIZE -o) : r;
-            const srcView = new Uint8Array(buff.buffer, buff.byteLength - r, l);
+            const srcView = buff.slice(buff.byteLength - r, buff.byteLength - r + l);
             const dstView = new Uint8Array(self.o.data[p].buffer, o, l);
             dstView.set(srcView);
             r = r-l;

@@ -10,7 +10,7 @@ export async function createOverride(o, b, c) {
             type: "file",
             fileName: o,
             cacheSize: b,
-            pageSize: c
+            pageSize: c || (1 << 24)
         };
     }
     if (o.type == "file") {
@@ -30,7 +30,7 @@ export function createNoOverride(o, b, c) {
             type: "file",
             fileName: o,
             cacheSize: b,
-            pageSize: c
+            pageSize: c || (1 << 24)
         };
     }
     if (o.type == "file") {
@@ -90,7 +90,7 @@ export function readWriteExisting(o, b, c) {
             type: "file",
             fileName: o,
             cacheSize: b,
-            pageSize: c
+            pageSize: c || (1 << 24)
         };
     }
     if (o.type == "file") {
@@ -110,7 +110,7 @@ export function readWriteExistingOrCreate(o, b, c) {
             type: "file",
             fileName: o,
             cacheSize: b,
-            pageSize: c
+            pageSize: c || (1 << 24)
         };
     }
     if (o.type == "file") {
