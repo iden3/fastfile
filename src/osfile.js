@@ -12,10 +12,6 @@ export async function open(fileName, openFlags, cacheSize, pageSize) {
     return  new FastFile(fd, stats, cacheSize, pageSize, fileName);
 }
 
-const tmpBuff32 = new Uint8Array(4);
-const tmpBuff32v = new DataView(tmpBuff32.buffer);
-const tmpBuff64 = new Uint8Array(8);
-const tmpBuff64v = new DataView(tmpBuff64.buffer);
 
 class FastFile {
 
@@ -24,7 +20,7 @@ class FastFile {
         this.fd = fd;
         this.pos = 0;
         this.pageSize = pageSize || (1 << 8);
-        while (this.pageSize < stats.blksize*4) {
+        while (this.pageSize < stats.blksize) {
             this.pageSize *= 2;
         }
         this.totalSize = stats.size;
@@ -34,110 +30,192 @@ class FastFile {
         this.pendingLoads = [];
         this.writing = false;
         this.reading = false;
+        this.avBuffs = [];
+        this.history = {};
     }
 
     _loadPage(p) {
         const self = this;
-        return new Promise((resolve, reject)=> {
+        const P = new Promise((resolve, reject)=> {
             self.pendingLoads.push({
                 page: p,
                 resolve: resolve,
                 reject: reject
             });
-            setImmediate(self._triggerLoad.bind(self));
         });
+        self.__statusPage("After Load request: ", p);
+        return P;
     }
+
+    __statusPage(s, p) {
+        const logEntry = [];
+        const self=this;
+        if (!self.logHistory) return;
+        logEntry.push("==" + s+ " " +p);
+        let S = "";
+        for (let i=0; i<self.pendingLoads.length; i++) {
+            if (self.pendingLoads[i].page == p) S = S + " " + i;
+        }
+        if (S) logEntry.push("Pending loads:"+S);
+        if (typeof self.pages[p] != "undefined") {
+            const page = self.pages[p];
+            logEntry.push("Loaded");
+            logEntry.push("pendingOps: "+page.pendingOps);
+            if (page.loading) logEntry.push("loading: "+page.loading);
+            if (page.writing) logEntry.push("writing");
+            if (page.dirty) logEntry.push("dirty");
+        }
+        logEntry.push("==");
+
+        if (!self.history[p]) self.history[p] = [];
+        self.history[p].push(logEntry);
+    }
+
+    __printHistory(p) {
+        const self = this;
+        if (!self.history[p]) console.log("Empty History ", p);
+        console.log("History "+p);
+        for (let i=0; i<self.history[p].length; i++) {
+            for (let j=0; j<self.history[p][i].length; j++) {
+                console.log("-> " + self.history[p][i][j]);
+            }
+        }
+    }
+
 
 
     _triggerLoad() {
         const self = this;
-        processPendingLoads();
-        if (self.pendingLoads.length == 0) return;
-        if (Object.keys(self.pages).length >= self.maxPagesLoaded) {
-            const dp = getDeletablePage();
-            if (dp<0) {  // // No sizes available
-//                setTimeout(self._triggerLoad.bind(self), 10000);
-                return;
-            }
-            delete self.pages[dp];
-        }
-        const load = self.pendingLoads.shift();
-        if (load.page>=self.totalPages) {
-            self.pages[load.page] = {
-                dirty: false,
-                buff: new Uint8Array(self.pageSize),
-                pendingOps: 1,
-                size: 0
-            };
-            load.resolve();
-            setImmediate(self._triggerLoad.bind(self));
-            return;
-        }
-        if (self.reading) {
-            self.pendingLoads.unshift(load);
-            return;  // Only one read at a time.
+
+        if (self.reading) return;
+        if (self.pendingLoads.length==0) return;
+
+        const pageIdxs = Object.keys(self.pages);
+
+        const deletablePages = [];
+        for (let i=0; i<pageIdxs.length; i++) {
+            const page = self.pages[parseInt(pageIdxs[i])];
+            if ((page.dirty == false)&&(page.pendingOps==0)&&(!page.writing)&&(!page.loading)) deletablePages.push(parseInt(pageIdxs[i]));
         }
 
-        self.reading = true;
-        const page = {
-            dirty: false,
-            buff: new Uint8Array(self.pageSize),
-            pendingOps: 1,
-            size: 0
-        };
-        self.fd.read(page.buff, 0, self.pageSize, load.page*self.pageSize).then((res)=> {
-            page.size = res.bytesRead;
-            self.pages[load.page] = page;
-            self.reading = false;
-            load.resolve();
-            setImmediate(self._triggerLoad.bind(self));
-        }, (err) => {
-            load.reject(err);
-        });
+        let freePages = self.maxPagesLoaded - pageIdxs.length;
 
-        function processPendingLoads() {
-            const newPendingLoads = [];
-            for (let i=0; i<self.pendingLoads.length; i++) {
-                const load = self.pendingLoads[i];
-                if (typeof self.pages[load.page] != "undefined") {
-                    self.pages[load.page].pendingOps ++;
-                    load.resolve();
+        const ops = [];
+
+        // while pending loads and
+        //     the page is loaded or I can recover one.
+        while (
+            (self.pendingLoads.length>0) &&
+            (   (typeof self.pages[self.pendingLoads[0].page] != "undefined" )
+              ||(  (freePages>0)
+                 ||(deletablePages.length>0)))) {
+            const load = self.pendingLoads.shift();
+            if (typeof self.pages[load.page] != "undefined") {
+                self.pages[load.page].pendingOps ++;
+                const idx = deletablePages.indexOf(load.page);
+                if (idx>=0) deletablePages.splice(idx, 1);
+                if (self.pages[load.page].loading) {
+                    self.pages[load.page].loading.push(load);
                 } else {
-                    newPendingLoads.push(load);
+                    load.resolve();
+                }
+                self.__statusPage("After Load (cached): ", load.page);
+
+            } else {
+                if (freePages) {
+                    freePages--;
+                } else {
+                    const fp = deletablePages.shift();
+                    self.__statusPage("Before Unload: ", fp);
+                    self.avBuffs.unshift(self.pages[fp]);
+                    delete self.pages[fp];
+                    self.__statusPage("After Unload: ", fp);
+                }
+
+                if (load.page>=self.totalPages) {
+                    self.pages[load.page] = getNewPage();
+                    load.resolve();
+                    self.__statusPage("After Load (new): ", load.page);
+                } else {
+                    self.reading = true;
+                    self.pages[load.page] = getNewPage();
+                    self.pages[load.page].loading = [load];
+                    ops.push(self.fd.read(self.pages[load.page].buff, 0, self.pageSize, load.page*self.pageSize).then((res)=> {
+                        self.pages[load.page].size = res.bytesRead;
+                        const loading = self.pages[load.page].loading;
+                        delete self.pages[load.page].loading;
+                        for (let i=0; i<loading.length; i++) {
+                            loading[i].resolve();
+                        }
+                        self.__statusPage("After Load (loaded): ", load.page);
+                        return res;
+                    }, (err) => {
+                        load.reject(err);
+                    }));
+                    self.__statusPage("After Load (loading): ", load.page);
                 }
             }
-            self.pendingLoads = newPendingLoads;
+        }
+        // if (ops.length>1) console.log(ops.length);
+
+        Promise.all(ops).then( () => {
+            self.reading = false;
+            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+        });
+
+        function getNewPage() {
+            if (self.avBuffs.length>0) {
+                const p = self.avBuffs.shift();
+                p.dirty = false;
+                p.pendingOps = 1;
+                p.size =0;
+                return p;
+            } else {
+                return {
+                    dirty: false,
+                    buff: new Uint8Array(self.pageSize),
+                    pendingOps: 1,
+                    size: 0
+                };
+            }
         }
 
-        function getDeletablePage() {
-            for (let p in self.pages) {
-                const page = self.pages[p];
-                if ((page.dirty == false)&&(page.pendingOps==0)) return p;
-            }
-            return -1;
-        }
     }
+
 
     _triggerWrite() {
         const self = this;
         if (self.writing) return;
-        const p = self._getDirtyPage();
-        if (p<0) {
-            if (self.pendingClose) self.pendingClose();
-            return;
-        }
-        self.writing=true;
-        self.pages[p].dirty = false;
-        self.fd.write(self.pages[p].buff, 0, self.pages[p].size, p*self.pageSize).then(() => {
-            self.writing = false;
-            setImmediate(self._triggerWrite.bind(self));
-            setImmediate(self._triggerLoad.bind(self));
-        }, (err) => {
-            console.log("ERROR Writing: "+err);
-            self.error = err;
-            self._tryClose();
-        });
 
+        const pageIdxs = Object.keys(self.pages);
+
+        const ops = [];
+
+        for (let i=0; i<pageIdxs.length; i++) {
+            const page = self.pages[parseInt(pageIdxs[i])];
+            if (page.dirty) {
+                page.dirty = false;
+                page.writing = true;
+                self.writing = true;
+                ops.push( self.fd.write(page.buff, 0, page.size, parseInt(pageIdxs[i])*self.pageSize).then(() => {
+                    page.writing = false;
+                    return;
+                }, (err) => {
+                    console.log("ERROR Writing: "+err);
+                    self.error = err;
+                    self._tryClose();
+                }));
+            }
+        }
+
+        if (self.writing) {
+            Promise.all(ops).then( () => {
+                self.writing = false;
+                setImmediate(self._triggerWrite.bind(self));
+                self._tryClose();
+                if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+            });
+        }
     }
 
     _getDirtyPage() {
@@ -162,14 +240,17 @@ class FastFile {
         if (self.pendingClose)
             throw new Error("Writing a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos + buff.byteLength -1) / self.pageSize);
 
-        // for (let i=firstPage; i<=lastPage; i++) await self._loadPage(i);
+        const pagePromises = [];
+        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
+        self._triggerLoad();
 
         let p = firstPage;
         let o = pos % self.pageSize;
         let r = buff.byteLength;
         while (r>0) {
-            await self._loadPage(p);
+            await pagePromises[p-firstPage];
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = buff.slice( buff.byteLength - r, buff.byteLength - r + l);
             const dstView = new Uint8Array(self.pages[p].buff.buffer, o, l);
@@ -183,7 +264,7 @@ class FastFile {
             r = r-l;
             p ++;
             o = 0;
-            setImmediate(self._triggerWrite.bind(self));
+            if (!self.writing) setImmediate(self._triggerWrite.bind(self));
         }
     }
 
@@ -209,22 +290,33 @@ class FastFile {
         if (self.pendingClose)
             throw new Error("Reading a closing file");
         const firstPage = Math.floor(pos / self.pageSize);
+        const lastPage = Math.floor((pos + len -1) / self.pageSize);
+
+        const pagePromises = [];
+        for (let i=firstPage; i<=lastPage; i++) pagePromises.push(self._loadPage(i));
+
+        self._triggerLoad();
 
         let p = firstPage;
         let o = pos % self.pageSize;
         // Remaining bytes to read
         let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
         while (r>0) {
-            await self._loadPage(p);
+            await pagePromises[p - firstPage];
+            self.__statusPage("After Await (read): ", p);
+
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
-            const srcView = new Uint8Array(self.pages[p].buff.buffer, o, l);
+            const srcView = new Uint8Array(self.pages[p].buff.buffer, self.pages[p].buff.byteOffset + o, l);
             buffDst.set(srcView, offset+len-r);
             self.pages[p].pendingOps --;
+
+            self.__statusPage("After Op done: ", p);
+
             r = r-l;
             p ++;
             o = 0;
-            setImmediate(self._triggerLoad.bind(self));
+            if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
         }
 
         this.pos = pos + len;
@@ -267,6 +359,8 @@ class FastFile {
 
     async writeULE32(v, pos) {
         const self = this;
+        const tmpBuff32 = new Uint8Array(4);
+        const tmpBuff32v = new DataView(tmpBuff32.buffer);
 
         tmpBuff32v.setUint32(0, v, true);
 
@@ -276,6 +370,9 @@ class FastFile {
     async writeUBE32(v, pos) {
         const self = this;
 
+        const tmpBuff32 = new Uint8Array(4);
+        const tmpBuff32v = new DataView(tmpBuff32.buffer);
+
         tmpBuff32v.setUint32(0, v, false);
 
         await self.write(tmpBuff32, pos);
@@ -284,6 +381,9 @@ class FastFile {
 
     async writeULE64(v, pos) {
         const self = this;
+
+        const tmpBuff64 = new Uint8Array(8);
+        const tmpBuff64v = new DataView(tmpBuff64.buffer);
 
         tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
         tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);

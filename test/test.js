@@ -74,6 +74,26 @@ describe("fastfile test", function () {
         const f = await fastFile.readExisting(fileName);
         for (let i=0; i<1000000; i++) {
             const n = await readBigInt(f, i*32);
+            if (Scalar.sub(n, q) != i) {
+                console.log(f);
+                console.log(Scalar.sub(n, q));
+                console.log(i);
+            }
+            assert(Scalar.sub(n, q) == i);
+            if ((i%100000) == 0) console.log("Reading: " + i);
+        }
+        await f.close();
+    });
+
+    it("should read the file", async () => {
+        const f = await fastFile.readExisting(fileName);
+        for (let i=0; i<1000000; i++) {
+            const n = await readBigInt(f, i*32);
+            if (Scalar.sub(n, q) != i) {
+                console.log(f);
+                console.log(Scalar.sub(n, q));
+                console.log(i);
+            }
             assert(Scalar.sub(n, q) == i);
             if ((i%100000) == 0) console.log("Reading: " + i);
         }
@@ -82,8 +102,8 @@ describe("fastfile test", function () {
 
     it("Should randomly read write", async () => {
         const f = await fastFile.readWriteExisting(fileName);
-        for (let i=0; i<10000; i++) {
-            const j = Math.floor(Math.random()* 10000);
+        for (let i=0; i<100000; i++) {
+            const j = Math.floor(Math.random()* 100000);
             // console.log("Start Reading", j);
             const oldVal = await readBigInt(f, j*32);
             let expectedOldVal;
@@ -97,7 +117,34 @@ describe("fastfile test", function () {
             values[j] = newVal;
             // console.log("Start Writing", j);
             await writeBigInt(f, newVal, j*32);
-            if ((i%1000) == 0) console.log("Reading: " + i);
+            if ((i%1000) == 0) console.log("Reading random R/W: " + i);
+        }
+        await f.close();
+    });
+
+    it("Should randomly multi read", async () => {
+        const f = await fastFile.readExisting(fileName);
+
+        const ops = [];
+        const expectedOldVal = [];
+        for (let i=0; i<100000; i++) {
+            const j = Math.floor(Math.random()* 100000);
+            // console.log("Start Reading", j);
+            ops.push(readBigInt(f, j*32));
+
+            if (typeof values[j] != "undefined") {
+                expectedOldVal[i] = values[j];
+            } else {
+                expectedOldVal[i] = Scalar.add(q,j);
+            }
+            if ((i%1000) == 0) console.log("Reading Multi: " + i);
+        }
+
+        const vals = await Promise.all(ops);
+
+        for (let i=0; i<vals.length; i++) {
+            assert(Scalar.eq(expectedOldVal[i], vals[i]));
+            if ((i%1000) == 0) console.log("Checking Multi: " + i);
         }
         await f.close();
     });
@@ -117,7 +164,7 @@ describe("fastfile test", function () {
             const newVal = F.random();
             values[j] = newVal;
             await writeBigInt(f, newVal, j*32);
-            if ((i%1000) == 0) console.log("Reading: " + i);
+            if ((i%1000) == 0) console.log("Reading after closing: " + i);
         }
         await f.close();
     });

@@ -3,14 +3,17 @@ import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
 
+const DEFAULT_CACHE_SIZE = (1 << 15);
+const DEFAULT_PAGE_SIZE = (1 << 10);
+
 
 export async function createOverride(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b,
-            pageSize: c || (1 << 24)
+            cacheSize: b || DEFAULT_CACHE_SIZE,
+            pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
     if (o.type == "file") {
@@ -29,8 +32,8 @@ export function createNoOverride(o, b, c) {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b,
-            pageSize: c || (1 << 24)
+            cacheSize: b || DEFAULT_CACHE_SIZE,
+            pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
     if (o.type == "file") {
@@ -68,8 +71,8 @@ export async function readExisting(o, b, c) {
             o = {
                 type: "file",
                 fileName: o,
-                cacheSize: b,
-                pageSize: c || (1 << 24)
+                cacheSize: b || DEFAULT_CACHE_SIZE,
+                pageSize: c || DEFAULT_PAGE_SIZE
             };
         }
     }
@@ -89,8 +92,8 @@ export function readWriteExisting(o, b, c) {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b,
-            pageSize: c || (1 << 24)
+            cacheSize: b || DEFAULT_CACHE_SIZE,
+            pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
     if (o.type == "file") {
@@ -109,8 +112,8 @@ export function readWriteExistingOrCreate(o, b, c) {
         o = {
             type: "file",
             fileName: o,
-            cacheSize: b,
-            pageSize: c || (1 << 24)
+            cacheSize: b || DEFAULT_CACHE_SIZE,
+            pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
     if (o.type == "file") {
