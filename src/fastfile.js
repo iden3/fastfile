@@ -3,8 +3,8 @@ import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
 
-const DEFAULT_CACHE_SIZE = (1 << 15);
-const DEFAULT_PAGE_SIZE = (1 << 10);
+const DEFAULT_CACHE_SIZE = (1 << 16);
+const DEFAULT_PAGE_SIZE = (1 << 13);
 
 
 export async function createOverride(o, b, c) {
