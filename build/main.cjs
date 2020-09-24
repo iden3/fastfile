@@ -775,8 +775,8 @@ class BigMemFile {
 
 /* global fetch */
 
-const DEFAULT_CACHE_SIZE = (1 << 15);
-const DEFAULT_PAGE_SIZE = (1 << 10);
+const DEFAULT_CACHE_SIZE = (1 << 16);
+const DEFAULT_PAGE_SIZE = (1 << 13);
 
 
 async function createOverride(o, b, c) {
