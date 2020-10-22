@@ -166,6 +166,7 @@ class FastFile {
         Promise.all(ops).then( () => {
             self.reading = false;
             if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
+            self._tryClose();
         });
 
         function getNewPage() {
