@@ -37,7 +37,6 @@
     "chai-as-promised": "^7.1.1",
     "rollup": "^2.20.0",
     "rollup-plugin-commonjs": "^10.1.0",
-    "rollup-plugin-node-resolve": "^5.2.0",
-    "tmp-promise": "^2.0.2"
+    "rollup-plugin-node-resolve": "^5.2.0"
   }
 }
