@@ -11,7 +11,6 @@
   },
   "scripts": {
     "test": "mocha",
-    "test:all": "mocha test/*.test.js test/test.js",
     "build": "rollup -c rollup.cjs.config.js"
   },
   "keywords": [
