@@ -3,7 +3,7 @@ import fs from"fs";
 
 export async function open(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
-    if (["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
+    if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
     const fd =await fs.promises.open(fileName, openFlags);
 
