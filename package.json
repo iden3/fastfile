@@ -1,7 +1,7 @@
 {
   "name": "fastfile",
   "type": "module",
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "fast cached read write of big binary files",
   "main": "./build/main.cjs",
   "module": "./src/fastfile.js",
