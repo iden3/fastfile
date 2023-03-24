@@ -2,11 +2,12 @@
 import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
-import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
+import constants from "constants";
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
 
+const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = constants;
 
 export async function createOverride(o, b, c) {
     if (typeof o === "string") {
