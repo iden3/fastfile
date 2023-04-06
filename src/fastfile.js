@@ -3,6 +3,13 @@ import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
 
+import constants from "constants";
+console.log(constants.O_RDONLY);
+console.log(constants.O_RDWR);
+console.log(constants.O_CREAT);
+console.log(constants.O_TRUNC);
+console.log(constants.O_EXCL);
+
 // Avoid having to patch values provided by the `constants` package
 // by just inlining the values directly. These should never change. :fingers_crossed:
 // Taken from https://github.com/juliangruber/constants-browserify/blob/ab9e8bf4e03c9e21e250273129a618bc40eecae7/constants.json
