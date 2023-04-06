@@ -229,12 +229,12 @@ class FastFile {
     async write(buff, pos) {
         if (buff.byteLength == 0) return;
         const self = this;
-/*
+        /*
         if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
             const cacheSize = Math.floor(buff.byteLength * 1.1);
             this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
         }
-*/
+        */
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+buff.byteLength;
         if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;

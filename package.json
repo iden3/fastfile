@@ -10,6 +10,7 @@
     "require": "./build/main.cjs"
   },
   "scripts": {
+    "pretest": "eslint .",
     "test": "mocha",
     "build": "rollup -c rollup.cjs.config.js"
   },

@@ -1,4 +1,3 @@
-/* globals BigInt */
 import assert from "assert";
 import fs from "fs";
 
