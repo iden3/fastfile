@@ -2,7 +2,15 @@
 import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
-import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
+
+// Avoid having to patch values provided by the `constants` package
+// by just inlining the values directly. These should never change. :fingers_crossed:
+// Taken from https://github.com/juliangruber/constants-browserify/blob/ab9e8bf4e03c9e21e250273129a618bc40eecae7/constants.json
+const O_RDONLY = 0;
+const O_RDWR = 2;
+const O_CREAT = 512;
+const O_TRUNC = 1024;
+const O_EXCL = 2048;
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);

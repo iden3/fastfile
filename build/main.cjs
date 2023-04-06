@@ -2,16 +2,17 @@
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
-function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
+var fs = require('fs');
 
-var fs = _interopDefault(require('fs'));
-var constants = require('constants');
+function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
+
+var fs__default = /*#__PURE__*/_interopDefaultLegacy(fs);
 
 async function open(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
-    const fd =await fs.promises.open(fileName, openFlags);
+    const fd =await fs__default["default"].promises.open(fileName, openFlags);
 
     const stats = await fd.stat();
 
@@ -361,7 +362,7 @@ class FastFile {
     async discard() {
         const self = this;
         await self.close();
-        await fs.promises.unlink(this.fileName);
+        await fs__default["default"].promises.unlink(this.fileName);
     }
 
     async writeULE32(v, pos) {
@@ -477,7 +478,7 @@ class FastFile {
     }
 }
 
-function createNew(o) {
+function createNew$1(o) {
     const initialSize = o.initialSize || 1<<20;
     const fd = new MemFile();
     fd.o = o;
@@ -489,7 +490,7 @@ function createNew(o) {
     return fd;
 }
 
-function readExisting(o) {
+function readExisting$2(o) {
     const fd = new MemFile();
     fd.o = o;
     fd.allocSize = o.data.byteLength;
@@ -499,7 +500,7 @@ function readExisting(o) {
     return fd;
 }
 
-function readWriteExisting(o) {
+function readWriteExisting$2(o) {
     const fd = new MemFile();
     fd.o = o;
     fd.allocSize = o.data.byteLength;
@@ -509,10 +510,10 @@ function readWriteExisting(o) {
     return fd;
 }
 
-const tmpBuff32 = new Uint8Array(4);
-const tmpBuff32v = new DataView(tmpBuff32.buffer);
-const tmpBuff64 = new Uint8Array(8);
-const tmpBuff64v = new DataView(tmpBuff64.buffer);
+const tmpBuff32$1 = new Uint8Array(4);
+const tmpBuff32v$1 = new DataView(tmpBuff32$1.buffer);
+const tmpBuff64$1 = new Uint8Array(8);
+const tmpBuff64v$1 = new DataView(tmpBuff64$1.buffer);
 
 class MemFile {
 
@@ -585,27 +586,27 @@ class MemFile {
     async writeULE32(v, pos) {
         const self = this;
 
-        tmpBuff32v.setUint32(0, v, true);
+        tmpBuff32v$1.setUint32(0, v, true);
 
-        await self.write(tmpBuff32, pos);
+        await self.write(tmpBuff32$1, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v.setUint32(0, v, false);
+        tmpBuff32v$1.setUint32(0, v, false);
 
-        await self.write(tmpBuff32, pos);
+        await self.write(tmpBuff32$1, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
+        tmpBuff64v$1.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v$1.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(tmpBuff64, pos);
+        await self.write(tmpBuff64$1, pos);
     }
 
 
@@ -669,7 +670,7 @@ class MemFile {
 
 const PAGE_SIZE = 1<<22;
 
-function createNew$1(o) {
+function createNew(o) {
     const initialSize = o.initialSize || 0;
     const fd = new BigMemFile();
     fd.o = o;
@@ -703,10 +704,10 @@ function readWriteExisting$1(o) {
     return fd;
 }
 
-const tmpBuff32$1 = new Uint8Array(4);
-const tmpBuff32v$1 = new DataView(tmpBuff32$1.buffer);
-const tmpBuff64$1 = new Uint8Array(8);
-const tmpBuff64v$1 = new DataView(tmpBuff64$1.buffer);
+const tmpBuff32 = new Uint8Array(4);
+const tmpBuff32v = new DataView(tmpBuff32.buffer);
+const tmpBuff64 = new Uint8Array(8);
+const tmpBuff64v = new DataView(tmpBuff64.buffer);
 
 class BigMemFile {
 
@@ -801,27 +802,27 @@ class BigMemFile {
     async writeULE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$1.setUint32(0, v, true);
+        tmpBuff32v.setUint32(0, v, true);
 
-        await self.write(tmpBuff32$1, pos);
+        await self.write(tmpBuff32, pos);
     }
 
     async writeUBE32(v, pos) {
         const self = this;
 
-        tmpBuff32v$1.setUint32(0, v, false);
+        tmpBuff32v.setUint32(0, v, false);
 
-        await self.write(tmpBuff32$1, pos);
+        await self.write(tmpBuff32, pos);
     }
 
 
     async writeULE64(v, pos) {
         const self = this;
 
-        tmpBuff64v$1.setUint32(0, v & 0xFFFFFFFF, true);
-        tmpBuff64v$1.setUint32(4, Math.floor(v / 0x100000000) , true);
+        tmpBuff64v.setUint32(0, v & 0xFFFFFFFF, true);
+        tmpBuff64v.setUint32(4, Math.floor(v / 0x100000000) , true);
 
-        await self.write(tmpBuff64$1, pos);
+        await self.write(tmpBuff64, pos);
     }
 
 
@@ -898,6 +899,15 @@ class BigMemFile {
 
 /* global fetch */
 
+// Avoid having to patch values provided by the `constants` package
+// by just inlining the values directly. These should never change. :fingers_crossed:
+// Taken from https://github.com/juliangruber/constants-browserify/blob/ab9e8bf4e03c9e21e250273129a618bc40eecae7/constants.json
+const O_RDONLY = 0;
+const O_RDWR = 2;
+const O_CREAT = 512;
+const O_TRUNC = 1024;
+const O_EXCL = 2048;
+
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
 
@@ -912,11 +922,11 @@ async function createOverride(o, b, c) {
         };
     }
     if (o.type == "file") {
-        return await open(o.fileName, constants.O_TRUNC | constants.O_CREAT | constants.O_RDWR, o.cacheSize, o.pageSize);
+        return await open(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return createNew(o);
-    } else if (o.type == "bigMem") {
         return createNew$1(o);
+    } else if (o.type == "bigMem") {
+        return createNew(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
@@ -932,17 +942,17 @@ function createNoOverride(o, b, c) {
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, constants.O_TRUNC | constants.O_CREAT | constants.O_RDWR | constants.O_EXCL, o.cacheSize, o.pageSize);
+        return open(o.fileName, O_TRUNC | O_CREAT | O_RDWR | O_EXCL, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return createNew(o);
-    } else if (o.type == "bigMem") {
         return createNew$1(o);
+    } else if (o.type == "bigMem") {
+        return createNew(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
-async function readExisting$2(o, b, c) {
+async function readExisting(o, b, c) {
     if (o instanceof Uint8Array) {
         o = {
             type: "mem",
@@ -972,9 +982,9 @@ async function readExisting$2(o, b, c) {
         }
     }
     if (o.type == "file") {
-        return await open(o.fileName, constants.O_RDONLY, o.cacheSize, o.pageSize);
+        return await open(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return await readExisting(o);
+        return await readExisting$2(o);
     } else if (o.type == "bigMem") {
         return await readExisting$1(o);
     } else {
@@ -982,7 +992,7 @@ async function readExisting$2(o, b, c) {
     }
 }
 
-function readWriteExisting$2(o, b, c) {
+function readWriteExisting(o, b, c) {
     if (typeof o === "string") {
         o = {
             type: "file",
@@ -992,9 +1002,9 @@ function readWriteExisting$2(o, b, c) {
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, constants.O_CREAT | constants.O_RDWR, o.cacheSize, o.pageSize);
+        return open(o.fileName, O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
-        return readWriteExisting(o);
+        return readWriteExisting$2(o);
     } else if (o.type == "bigMem") {
         return readWriteExisting$1(o);
     } else {
@@ -1012,9 +1022,9 @@ function readWriteExistingOrCreate(o, b, c) {
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, constants.O_CREAT | constants.O_RDWR | constants.O_EXCL, o.cacheSize);
+        return open(o.fileName, O_CREAT | O_RDWR | O_EXCL, o.cacheSize);
     } else if (o.type == "mem") {
-        return readWriteExisting(o);
+        return readWriteExisting$2(o);
     } else if (o.type == "bigMem") {
         return readWriteExisting$1(o);
     } else {
@@ -1024,6 +1034,6 @@ function readWriteExistingOrCreate(o, b, c) {
 
 exports.createNoOverride = createNoOverride;
 exports.createOverride = createOverride;
-exports.readExisting = readExisting$2;
-exports.readWriteExisting = readWriteExisting$2;
+exports.readExisting = readExisting;
+exports.readWriteExisting = readWriteExisting;
 exports.readWriteExistingOrCreate = readWriteExistingOrCreate;
