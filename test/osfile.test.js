@@ -52,12 +52,13 @@ describe("fastfile testing suite for osfile", function () {
 
     it("should read a large file", async () => {
         const fileName = "//wsl.localhost/Ubuntu/home/geoff/ptau/pot10_0006_bcn_prep.ptau";
+        const bytesToRead = 1<<16;
         const ff = await fastFile.readExisting(fileName, 1024, 1024);
         assert(ff.totalSize>0);
 
-        let buff = new Uint8Array(1024);
-        await ff.readToBuffer(buff, 0, 1024);
-        assert.equal(ff.pos, 1024);
+        let buff = new Uint8Array(bytesToRead);
+        await ff.readToBuffer(buff, 0, bytesToRead);
+        assert.equal(ff.pos, bytesToRead);
     });
 });
 

@@ -32,6 +32,7 @@ class FastFile {
         this.reading = false;
         this.avBuffs = [];
         this.history = {};
+        this.maxPromises = 1 << 3;
     }
 
     _loadPage(p) {
@@ -107,8 +108,8 @@ class FastFile {
         while (
             (self.pendingLoads.length>0) &&
             (   (typeof self.pages[self.pendingLoads[0].page] != "undefined" )
-              ||(  (freePages>0)
-                 ||(deletablePages.length>0)))) {
+            ||(  (freePages>0)
+                ||(deletablePages.length>0)))) {
             const load = self.pendingLoads.shift();
             if (typeof self.pages[load.page] != "undefined") {
                 self.pages[load.page].pendingOps ++;
@@ -158,7 +159,16 @@ class FastFile {
         }
         // if (ops.length>1) console.log(ops.length);
 
-        Promise.all(ops).then( () => {
+        // This attempts to avoid 'too many promises for Promise.all' error
+        const opsWrapper = [];
+        for (let from=0; from<ops.length; from+=this.maxPromises) {
+            let to = from+this.maxPromises;
+            if (to > ops.length) to = ops.length;
+            const opsSlice = ops.slice(from, to);
+            opsWrapper.push(Promise.all(opsSlice));
+        }
+
+        Promise.all(opsWrapper).then( () => {
             self.reading = false;
             if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
             self._tryClose();
