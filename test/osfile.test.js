@@ -51,7 +51,7 @@ describe("fastfile testing suite for osfile", function () {
     });
 
     it("should read a large file", async () => {
-        const fileName = "//wsl.localhost/Ubuntu/home/geoff/ptau/pot10_0006_bcn_prep.ptau";
+        const fileName = "//path/to/large/file.ptau";
         const bytesToRead = 1<<16;
         const ff = await fastFile.readExisting(fileName, 1024, 1024);
         assert(ff.totalSize>0);
