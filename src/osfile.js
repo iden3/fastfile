@@ -32,7 +32,7 @@ class FastFile {
         this.reading = false;
         this.avBuffs = [];
         this.history = {};
-        this.maxPromises = 1 << 3;
+        this.maxPromises = 1 << 10;
     }
 
     _loadPage(p) {
@@ -159,11 +159,10 @@ class FastFile {
         }
         // if (ops.length>1) console.log(ops.length);
 
-        // This attempts to avoid 'too many promises for Promise.all' error
+        // This avoids 'too many promises for Promise.all' error
         const opsWrapper = [];
         for (let from=0; from<ops.length; from+=this.maxPromises) {
-            let to = from+this.maxPromises;
-            if (to > ops.length) to = ops.length;
+            let to = Math.min(from+this.maxPromises, ops.length);
             const opsSlice = ops.slice(from, to);
             opsWrapper.push(Promise.all(opsSlice));
         }
