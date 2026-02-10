@@ -3,6 +3,7 @@
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var fs = require('fs');
+var node_fs = require('node:fs');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -897,7 +898,7 @@ class BigMemFile {
     }
 }
 
-const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = fs.constants;
+const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = node_fs.constants;
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);

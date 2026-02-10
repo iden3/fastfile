@@ -1,7 +1,7 @@
 import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
-import { constants } from "fs";
+import { constants } from "node:fs";
 
 const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = constants;
 
