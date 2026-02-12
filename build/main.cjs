@@ -3,7 +3,7 @@
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var fs = require('fs');
-var node_fs = require('node:fs');
+var constants = require('constants');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -898,8 +898,6 @@ class BigMemFile {
     }
 }
 
-const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = node_fs.constants;
-
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
 
@@ -914,13 +912,13 @@ async function createOverride(o, b, c) {
         };
     }
     if (o.type == "file") {
-        return await open(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
+        return await open(o.fileName, constants.O_TRUNC | constants.O_CREAT | constants.O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return createNew$1(o);
     } else if (o.type == "bigMem") {
         return createNew(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
@@ -934,13 +932,13 @@ function createNoOverride(o, b, c) {
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, O_TRUNC | O_CREAT | O_RDWR | O_EXCL, o.cacheSize, o.pageSize);
+        return open(o.fileName, constants.O_TRUNC | constants.O_CREAT | constants.O_RDWR | constants.O_EXCL, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return createNew$1(o);
     } else if (o.type == "bigMem") {
         return createNew(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
@@ -953,7 +951,7 @@ async function readExisting(o, b, c) {
     }
     if (process.browser) {
         if (typeof o === "string") {
-            const buff = await fetch(o).then( function(res) {
+            const buff = await fetch(o).then(function (res) {
                 return res.arrayBuffer();
             }).then(function (ab) {
                 return new Uint8Array(ab);
@@ -974,13 +972,13 @@ async function readExisting(o, b, c) {
         }
     }
     if (o.type == "file") {
-        return await open(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
+        return await open(o.fileName, constants.O_RDONLY, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return await readExisting$2(o);
     } else if (o.type == "bigMem") {
         return await readExisting$1(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
@@ -994,13 +992,13 @@ function readWriteExisting(o, b, c) {
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
+        return open(o.fileName, constants.O_CREAT | constants.O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return readWriteExisting$2(o);
     } else if (o.type == "bigMem") {
         return readWriteExisting$1(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
@@ -1014,13 +1012,13 @@ function readWriteExistingOrCreate(o, b, c) {
         };
     }
     if (o.type == "file") {
-        return open(o.fileName, O_CREAT | O_RDWR | O_EXCL, o.cacheSize);
+        return open(o.fileName, constants.O_CREAT | constants.O_RDWR | constants.O_EXCL, o.cacheSize);
     } else if (o.type == "mem") {
         return readWriteExisting$2(o);
     } else if (o.type == "bigMem") {
         return readWriteExisting$1(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
