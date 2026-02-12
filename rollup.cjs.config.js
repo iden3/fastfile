@@ -10,7 +10,7 @@ export default {
         format: "cjs",
     },
     external: [
-        ...Object.keys(pkg.dependencies),
+        ...Object.keys(pkg.dependencies ?? {}),
         ...builtin,
     ]
 };

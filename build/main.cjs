@@ -1,19 +1,13 @@
 'use strict';
 
-Object.defineProperty(exports, '__esModule', { value: true });
-
 var fs = require('fs');
 var constants = require('constants');
-
-function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
-
-var fs__default = /*#__PURE__*/_interopDefaultLegacy(fs);
 
 async function open(fileName, openFlags, cacheSize, pageSize) {
     cacheSize = cacheSize || 4096*64;
     if (typeof openFlags !== "number" && ["w+", "wx+", "r", "ax+", "a+"].indexOf(openFlags) <0)
         throw new Error("Invalid open option");
-    const fd =await fs__default["default"].promises.open(fileName, openFlags);
+    const fd =await fs.promises.open(fileName, openFlags);
 
     const stats = await fd.stat();
 
@@ -363,7 +357,7 @@ class FastFile {
     async discard() {
         const self = this;
         await self.close();
-        await fs__default["default"].promises.unlink(this.fileName);
+        await fs.promises.unlink(this.fileName);
     }
 
     async writeULE32(v, pos) {
