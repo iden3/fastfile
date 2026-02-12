@@ -1,9 +1,8 @@
 import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
-import { constants } from "fs";
+import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
 
-const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = constants;
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
@@ -25,7 +24,7 @@ export async function createOverride(o, b, c) {
     } else if (o.type == "bigMem") {
         return bigMemFile.createNew(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
@@ -45,7 +44,7 @@ export function createNoOverride(o, b, c) {
     } else if (o.type == "bigMem") {
         return bigMemFile.createNew(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
@@ -58,7 +57,7 @@ export async function readExisting(o, b, c) {
     }
     if (process.browser) {
         if (typeof o === "string") {
-            const buff = await fetch(o).then( function(res) {
+            const buff = await fetch(o).then(function (res) {
                 return res.arrayBuffer();
             }).then(function (ab) {
                 return new Uint8Array(ab);
@@ -85,7 +84,7 @@ export async function readExisting(o, b, c) {
     } else if (o.type == "bigMem") {
         return await bigMemFile.readExisting(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
@@ -105,7 +104,7 @@ export function readWriteExisting(o, b, c) {
     } else if (o.type == "bigMem") {
         return bigMemFile.readWriteExisting(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
 
@@ -125,6 +124,6 @@ export function readWriteExistingOrCreate(o, b, c) {
     } else if (o.type == "bigMem") {
         return bigMemFile.readWriteExisting(o);
     } else {
-        throw new Error("Invalid FastFile type: "+o.type);
+        throw new Error("Invalid FastFile type: " + o.type);
     }
 }
