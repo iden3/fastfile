@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import globals from "globals";
 
+
 export default [
     {
         ignores: ["build/**", "node_modules/**"]
