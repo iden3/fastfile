@@ -49,6 +49,17 @@ describe("fastfile testing suite for osfile", function () {
         expect(fd.readString(0)).to.be.rejectedWith("Reading a closing file");
         await fs.promises.unlink(fileName);
     });
+
+    it("should read a large file", async () => {
+        const fileName = "//path/to/large/file.ptau";
+        const bytesToRead = 1<<16;
+        const ff = await fastFile.readExisting(fileName, 1024, 1024);
+        assert(ff.totalSize>0);
+
+        let buff = new Uint8Array(bytesToRead);
+        await ff.readToBuffer(buff, 0, bytesToRead);
+        assert.equal(ff.pos, bytesToRead);
+    });
 });
 
 
