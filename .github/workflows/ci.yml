@@ -1,11 +1,21 @@
 name: Continuous Integration
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
 
 jobs:
   test:
     name: Test
     timeout-minutes: 15
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [lts/*, lts/-1]
 
     steps:
       - name: Checkout project
@@ -14,7 +24,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "lts/*"
+          node-version: ${{ matrix.node-version }}
+          check-latest: true
           cache: "npm"
 
       - name: Install dependencies

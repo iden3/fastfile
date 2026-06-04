@@ -1,16 +1,17 @@
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
 
-const DEFAULT_CACHE_SIZE = 1 << 16;
-
 function noFileSupport() {
     throw new Error("File I/O is not supported in the browser");
 }
 
-function normalizeOpts(o, initialSize) {
+function normalizeOpts(o) {
     if (o instanceof Uint8Array) return { type: "mem", data: o };
-    if (typeof o !== "string") return o;
-    return { type: "mem", initialSize: initialSize || DEFAULT_CACHE_SIZE };
+    // A string means a file path/name in the Node API. There are no files in
+    // the browser, so reject it instead of silently creating an anonymous mem
+    // file (which would mask code copied from the Node README).
+    if (typeof o === "string") noFileSupport();
+    return o;
 }
 
 async function fetchAsMemOpts(url) {
@@ -25,8 +26,8 @@ function dispatchMem(o, memFn, bigMemFn) {
     throw new Error("Invalid FastFile type: " + o.type);
 }
 
-export function createOverride(o, b) {
-    return dispatchMem(normalizeOpts(o, b), memFile.createNew, bigMemFile.createNew);
+export function createOverride(o) {
+    return dispatchMem(normalizeOpts(o), memFile.createNew, bigMemFile.createNew);
 }
 
 export const createNoOverride = createOverride;
