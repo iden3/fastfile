@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [lts/*, lts/-1]
+        node-version: [lts/*]
 
     steps:
       - name: Checkout project
