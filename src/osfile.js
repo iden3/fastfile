@@ -26,10 +26,12 @@ class FastFile {
         this.totalSize = stats.size;
         this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
         this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
-        // Reads at least this large bypass the page cache and copy straight from
-        // disk into the destination buffer (see readToBuffer), avoiding the
-        // extra page->destination copy that dominates large sequential reads.
+        // Reads/writes at least this large bypass the page cache and move bytes
+        // straight between disk and the caller's buffer (see readToBuffer /
+        // write), avoiding the extra buffer<->page copy that dominates large
+        // sequential transfers (e.g. zkey/ptau sections).
         this.directReadThreshold = 1 << 20;
+        this.directWriteThreshold = 1 << 20;
         this.pages = {};
         this.pendingLoads = [];
         this.writing = false;
@@ -230,20 +232,40 @@ class FastFile {
         return -1;
     }
 
+    _rangeHasCachedPages(pos, len) {
+        const firstPage = Math.floor(pos / this.pageSize);
+        const lastPage = Math.floor((pos + len - 1) / this.pageSize);
+        for (let p = firstPage; p <= lastPage; p++) {
+            if (this.pages[p]) return true;
+        }
+        return false;
+    }
+
     async write(buff, pos) {
         if (buff.byteLength == 0) return;
         const self = this;
-        /*
-        if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(buff.byteLength * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
-        */
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+buff.byteLength;
         if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
         if (self.pendingClose)
             throw new Error("Writing a closing file");
+
+        // Direct-write fast path: for large writes to a region with no cached
+        // pages, write straight to disk, skipping the buff->page copy and the
+        // deferred page flush. Any cached page in range (even clean) would go
+        // stale after a direct write, so we fall back to the cached path then.
+        if (buff.byteLength >= self.directWriteThreshold && !self._rangeHasCachedPages(pos, buff.byteLength)) {
+            let done = 0;
+            while (done < buff.byteLength) {
+                const { bytesWritten } = await self.fd.write(buff, done, buff.byteLength - done, pos + done);
+                if (bytesWritten === 0) break;   // should not happen
+                done += bytesWritten;
+            }
+            const lastPage = Math.floor((pos + buff.byteLength - 1) / self.pageSize);
+            if (lastPage + 1 > self.totalPages) self.totalPages = lastPage + 1;
+            return;
+        }
+
         const firstPage = Math.floor(pos / self.pageSize);
         const lastPage = Math.floor((pos + buff.byteLength -1) / self.pageSize);
 
