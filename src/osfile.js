@@ -26,6 +26,10 @@ class FastFile {
         this.totalSize = stats.size;
         this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
         this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
+        // Reads at least this large bypass the page cache and copy straight from
+        // disk into the destination buffer (see readToBuffer), avoiding the
+        // extra page->destination copy that dominates large sequential reads.
+        this.directReadThreshold = 1 << 20;
         this.pages = {};
         this.pendingLoads = [];
         this.writing = false;
@@ -277,19 +281,46 @@ class FastFile {
         return buff;
     }
 
+    _rangeHasDirtyPages(pos, len) {
+        const firstPage = Math.floor(pos / this.pageSize);
+        const lastPage = Math.floor((pos + len - 1) / this.pageSize);
+        for (let p = firstPage; p <= lastPage; p++) {
+            const page = this.pages[p];
+            if (page && (page.dirty || page.writing)) return true;
+        }
+        return false;
+    }
+
     async readToBuffer(buffDst, offset, len, pos) {
         if (len == 0) {
             return;
         }
         const self = this;
-        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(len * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+len;
         if (self.pendingClose)
             throw new Error("Reading a closing file");
+
+        // Direct-read fast path: for large reads with no overlapping unwritten
+        // (dirty) pages, copy straight from disk into the destination buffer.
+        // This skips the page cache and the page->destination copy it incurs,
+        // which dominates large sequential reads (e.g. zkey/ptau sections).
+        if (len >= self.directReadThreshold && !self._rangeHasDirtyPages(pos, len)) {
+            let toRead = (pos + len > self.totalSize) ? (self.totalSize - pos) : len;
+            if (toRead < 0) toRead = 0;
+            let done = 0;
+            while (done < toRead) {
+                const { bytesRead } = await self.fd.read(buffDst, offset + done, toRead - done, pos + done);
+                if (bytesRead === 0) break;   // EOF
+                done += bytesRead;
+            }
+            return;
+        }
+
+        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(len * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
         const firstPage = Math.floor(pos / self.pageSize);
         const lastPage = Math.floor((pos + len -1) / self.pageSize);
 
