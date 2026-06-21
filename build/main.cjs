@@ -3,7 +3,6 @@
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var fs = require('fs');
-var node_fs = require('node:fs');
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -951,7 +950,10 @@ class BigMemFile {
     }
 }
 
-const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = node_fs.constants;
+// Read open-mode flags from fs.constants instead of a separate builtin import,
+// so bundlers that stub the "fs" module for the browser cover these too. The
+// flags are only used on the Node file path, never in the browser.
+const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = fs__default["default"].constants || {};
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
