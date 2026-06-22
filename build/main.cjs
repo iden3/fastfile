@@ -266,7 +266,9 @@ class FastFile {
         // pages, write straight to disk, skipping the buff->page copy and the
         // deferred page flush. Any cached page in range (even clean) would go
         // stale after a direct write, so we fall back to the cached path then.
-        if (buff.byteLength >= self.directWriteThreshold && !self._rangeHasCachedPages(pos, buff.byteLength)) {
+        // ArrayBuffer.isView gate: fd.write needs a real TypedArray/DataView; a
+        // BigBuffer (paged, not a view) must use the cached path.
+        if (buff.byteLength >= self.directWriteThreshold && ArrayBuffer.isView(buff) && !self._rangeHasCachedPages(pos, buff.byteLength)) {
             let done = 0;
             while (done < buff.byteLength) {
                 const { bytesWritten } = await self.fd.write(buff, done, buff.byteLength - done, pos + done);
@@ -345,7 +347,10 @@ class FastFile {
         // (dirty) pages, copy straight from disk into the destination buffer.
         // This skips the page cache and the page->destination copy it incurs,
         // which dominates large sequential reads (e.g. zkey/ptau sections).
-        if (len >= self.directReadThreshold && !self._rangeHasDirtyPages(pos, len)) {
+        // ArrayBuffer.isView gate: the direct path hands buffDst to fd.read, which
+        // needs a real TypedArray/DataView. A BigBuffer (paged, not a view) must
+        // go through the cached path, which copies into it via its own .set().
+        if (len >= self.directReadThreshold && ArrayBuffer.isView(buffDst) && !self._rangeHasDirtyPages(pos, len)) {
             let toRead = (pos + len > self.totalSize) ? (self.totalSize - pos) : len;
             if (toRead < 0) toRead = 0;
             let done = 0;
