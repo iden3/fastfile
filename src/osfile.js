@@ -232,11 +232,15 @@ class FastFile {
         return -1;
     }
 
+    // Iterate the actually-cached pages (usually few) rather than every page
+    // index in [firstPage, lastPage], so the check stays O(cached pages) even
+    // for very large ranges / small page sizes.
     _rangeHasCachedPages(pos, len) {
         const firstPage = Math.floor(pos / this.pageSize);
         const lastPage = Math.floor((pos + len - 1) / this.pageSize);
-        for (let p = firstPage; p <= lastPage; p++) {
-            if (this.pages[p]) return true;
+        for (const k of Object.keys(this.pages)) {
+            const p = +k;
+            if (p >= firstPage && p <= lastPage) return true;
         }
         return false;
     }
@@ -303,12 +307,18 @@ class FastFile {
         return buff;
     }
 
+    // Iterate the actually-cached pages (usually few) rather than every page
+    // index in [firstPage, lastPage], so the check stays O(cached pages) even
+    // for very large ranges / small page sizes.
     _rangeHasDirtyPages(pos, len) {
         const firstPage = Math.floor(pos / this.pageSize);
         const lastPage = Math.floor((pos + len - 1) / this.pageSize);
-        for (let p = firstPage; p <= lastPage; p++) {
-            const page = this.pages[p];
-            if (page && (page.dirty || page.writing)) return true;
+        for (const k of Object.keys(this.pages)) {
+            const p = +k;
+            if (p >= firstPage && p <= lastPage) {
+                const page = this.pages[p];
+                if (page.dirty || page.writing) return true;
+            }
         }
         return false;
     }
