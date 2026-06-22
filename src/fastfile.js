@@ -1,13 +1,8 @@
 import { open } from "./osfile.js";
-//import { directOpen as open } from "./directfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
-import fs from "fs";
+import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
 
-// Read open-mode flags from fs.constants instead of a separate builtin import,
-// so bundlers that stub the "fs" module for the browser cover these too. The
-// flags are only used on the Node file path, never in the browser.
-const { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } = fs.constants || {};
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
