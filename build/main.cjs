@@ -971,7 +971,7 @@ async function createOverride(o, b, c) {
     } else if (o.type == "bigMem") {
         return createNew(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
@@ -991,7 +991,7 @@ function createNoOverride(o, b, c) {
     } else if (o.type == "bigMem") {
         return createNew(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
@@ -1004,7 +1004,7 @@ async function readExisting(o, b, c) {
     }
     if (process.browser) {
         if (typeof o === "string") {
-            const buff = await fetch(o).then(function (res) {
+            const buff = await fetch(o).then( function(res) {
                 return res.arrayBuffer();
             }).then(function (ab) {
                 return new Uint8Array(ab);
@@ -1031,7 +1031,7 @@ async function readExisting(o, b, c) {
     } else if (o.type == "bigMem") {
         return await readExisting$1(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
@@ -1051,7 +1051,7 @@ function readWriteExisting(o, b, c) {
     } else if (o.type == "bigMem") {
         return readWriteExisting$1(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
@@ -1071,7 +1071,7 @@ function readWriteExistingOrCreate(o, b, c) {
     } else if (o.type == "bigMem") {
         return readWriteExisting$1(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
