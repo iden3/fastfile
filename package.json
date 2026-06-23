@@ -6,8 +6,13 @@
   "main": "./build/main.cjs",
   "module": "./src/fastfile.js",
   "exports": {
+    "browser": "./src/fastfile.js",
     "import": "./src/fastfile.js",
     "require": "./build/main.cjs"
+  },
+  "browser": {
+    "fs": false,
+    "constants": "./src/constants.browser.js"
   },
   "scripts": {
     "pretest": "eslint .",
