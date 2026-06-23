@@ -969,6 +969,10 @@ class BigMemFile {
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
 
+// Robust Node detection that never throws (unlike `process.browser`, which is a
+// webpack-ism and is undefined under Vite/esbuild/SES).
+const isNode = typeof process !== "undefined" && process.versions != null && process.versions.node != null;
+
 
 async function createOverride(o, b, c) {
     if (typeof o === "string") {
@@ -1017,7 +1021,7 @@ async function readExisting(o, b, c) {
             data: o
         };
     }
-    if (process.browser) {
+    if (!isNode) {
         if (typeof o === "string") {
             const buff = await fetch(o).then( function(res) {
                 return res.arrayBuffer();
