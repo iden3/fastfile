@@ -2,11 +2,8 @@ import * as fastFile from "../src/fastfile.js";
 
 import http from "http";
 import assert from "assert";
-import * as chai from "chai";
-import chaiAsPromised from "chai-as-promised";
+import { expect } from "vitest";
 
-chai.use(chaiAsPromised);
-const expect = chai.expect;
 
 // Deterministic pseudo-random content so failures are reproducible.
 function makeData(n) {
@@ -79,7 +76,6 @@ function startServer(state, opts) {
 }
 
 describe("fastfile testing suite for httpfile", function () {
-    this.timeout(100000);
 
     it("should read ranges without ever downloading the full file", async () => {
         const data = makeData(1 << 20);   // 1 MiB
@@ -176,7 +172,7 @@ describe("fastfile testing suite for httpfile", function () {
 
             // direct (uncached) read must reject, not silently mix versions
             await expect(fd.readToBuffer(new Uint8Array(1 << 16), 0, 1 << 16, 1 << 17))
-                .to.be.rejectedWith(/file changed/);
+                .rejects.toThrow(/file changed/);
             await fd.close();
         } finally {
             await srv.close();
@@ -188,9 +184,9 @@ describe("fastfile testing suite for httpfile", function () {
         const srv = await startServer({ data: data, etag: "\"v1\"" });
         try {
             const fd = await fastFile.readExisting(srv.url);
-            await expect(fd.read(16, 992)).to.be.rejectedWith(/out of bounds/);
-            await expect(fd.write(new Uint8Array(4), 0)).to.be.rejectedWith(/read only/);
-            await expect(fd.writeULE32(1, 0)).to.be.rejectedWith(/read only/);
+            await expect(fd.read(16, 992)).rejects.toThrow(/out of bounds/);
+            await expect(fd.write(new Uint8Array(4), 0)).rejects.toThrow(/read only/);
+            await expect(fd.writeULE32(1, 0)).rejects.toThrow(/read only/);
             await fd.close();
         } finally {
             await srv.close();
@@ -281,7 +277,7 @@ describe("fastfile testing suite for httpfile", function () {
         const url = "http://127.0.0.1:" + server.address().port + "/data.bin";
         try {
             const fd = await fastFile.readExisting(url);
-            await expect(fd.read(64, 0)).to.be.rejectedWith(/file changed/);
+            await expect(fd.read(64, 0)).rejects.toThrow(/file changed/);
             await fd.close();
         } finally {
             await new Promise((r) => server.close(r));

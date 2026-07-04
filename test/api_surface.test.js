@@ -3,11 +3,8 @@ import http from "http";
 import * as fastFile from "../src/fastfile.js";
 
 import assert from "assert";
-import * as chai from "chai";
-import chaiAsPromised from "chai-as-promised";
+import { expect } from "vitest";
 
-chai.use(chaiAsPromised);
-const expect = chai.expect;
 
 // Behavioral coverage of the full FastFile API surface: the dispatcher
 // variants in fastfile.js, and the ULE/UBE/string helpers plus error paths
@@ -37,13 +34,12 @@ async function roundTripHelpers(fd) {
 }
 
 describe("fastfile API surface", function () {
-    this.timeout(100000);
 
     describe("dispatcher (fastfile.js)", function () {
         it("createOverride / createNoOverride / readWriteExisting reject unknown types", async () => {
-            await expect(fastFile.createOverride({ type: "nope" })).to.be.rejectedWith("Invalid FastFile type");
+            await expect(fastFile.createOverride({ type: "nope" })).rejects.toThrow("Invalid FastFile type");
             expect(() => fastFile.createNoOverride({ type: "nope" })).to.throw("Invalid FastFile type");
-            await expect(fastFile.readExisting({ type: "nope" })).to.be.rejectedWith("Invalid FastFile type");
+            await expect(fastFile.readExisting({ type: "nope" })).rejects.toThrow("Invalid FastFile type");
             expect(() => fastFile.readWriteExisting({ type: "nope" })).to.throw("Invalid FastFile type");
             expect(() => fastFile.readWriteExistingOrCreate({ type: "nope" })).to.throw("Invalid FastFile type");
         });
@@ -62,7 +58,7 @@ describe("fastfile API surface", function () {
             await fd.write(new Uint8Array([9]), 0);
             await fd.close();
             // O_EXCL: a second createNoOverride on the same path must fail
-            await expect(fastFile.createNoOverride(fileName)).to.be.rejected;
+            await expect(fastFile.createNoOverride(fileName)).rejects.toThrow();
             await fs.promises.unlink(fileName);
         });
 
@@ -142,8 +138,8 @@ describe("fastfile API surface", function () {
             assert.deepStrictEqual([...got.slice(4)], [0, 0, 0, 0]);
 
             const ro = await fastFile.readExisting({ type: "mem", data: makeData(4) });
-            await expect(ro.read(8, 0)).to.be.rejectedWith("Reading out of bounds");
-            await expect(ro.write(new Uint8Array(1), 0)).to.be.rejectedWith("read only");
+            await expect(ro.read(8, 0)).rejects.toThrow("Reading out of bounds");
+            await expect(ro.write(new Uint8Array(1), 0)).rejects.toThrow("read only");
         });
 
         it("readString finds terminated strings and returns empty when unterminated", async () => {
@@ -160,7 +156,7 @@ describe("fastfile API surface", function () {
 
             // read-only fd: reading a string past the end rejects
             const ro = await fastFile.readExisting({ type: "mem", data: enc.encode("x") });
-            await expect(ro.readString(10)).to.be.rejectedWith("Reading out of bounds");
+            await expect(ro.readString(10)).rejects.toThrow("Reading out of bounds");
 
             // writable fd: a position past the end resizes and yields ""
             assert.strictEqual(await fd.readString(1000), "");
@@ -192,8 +188,8 @@ describe("fastfile API surface", function () {
 
         it("read-only files reject out-of-bounds reads and writes", async () => {
             const fd = await fastFile.readExisting({ type: "bigMem", data: [makeData(16)] });
-            await expect(fd.read(32, 0)).to.be.rejected;
-            await expect(fd.write(new Uint8Array(1), 0)).to.be.rejectedWith("read only");
+            await expect(fd.read(32, 0)).rejects.toThrow();
+            await expect(fd.write(new Uint8Array(1), 0)).rejects.toThrow("read only");
         });
 
         it("readString handles long strings, page boundaries and a missing terminator", async () => {
@@ -226,7 +222,7 @@ describe("fastfile API surface", function () {
             await fd.write(new Uint8Array([1, 2, 3]), 0);
             assert.strictEqual(await fd.readString(100), "");
             // exactly at a page boundary the resized data has no next page
-            await expect(fd.readString(BIGMEM_PAGE)).to.be.rejectedWith("ERROR");
+            await expect(fd.readString(BIGMEM_PAGE)).rejects.toThrow("ERROR");
             fd.close();
         });
     });
@@ -299,15 +295,15 @@ describe("fastfile API surface", function () {
             const fd = await fastFile.createOverride(fileName);
             await fd.write(makeData(8), 0);
             await fd.discard();
-            await expect(fs.promises.stat(fileName)).to.be.rejected;
+            await expect(fs.promises.stat(fileName)).rejects.toThrow();
         });
 
         it("writing after close fails fast", async () => {
             const fd = await fastFile.createOverride(fileName);
             await fd.write(makeData(8), 0);
             await fd.close();
-            await expect(fd.write(makeData(8), 0)).to.be.rejectedWith("Writing a closing file");
-            await expect(fd.readString(0)).to.be.rejectedWith("Reading a closing file");
+            await expect(fd.write(makeData(8), 0)).rejects.toThrow("Writing a closing file");
+            await expect(fd.readString(0)).rejects.toThrow("Reading a closing file");
         });
     });
 
@@ -349,13 +345,13 @@ describe("fastfile API surface", function () {
 
         it("rejects out-of-bounds reads and every write helper", async () => {
             const fd = await fastFile.readExisting({ type: "blob", blob: blobOf(makeData(16)) });
-            await expect(fd.read(32, 0)).to.be.rejectedWith("Reading out of bounds");
-            await expect(fd.write(new Uint8Array(1), 0)).to.be.rejectedWith("read only");
-            await expect(fd.writeULE32(1, 0)).to.be.rejectedWith("read only");
-            await expect(fd.writeUBE32(1, 0)).to.be.rejectedWith("read only");
-            await expect(fd.writeULE64(1, 0)).to.be.rejectedWith("read only");
+            await expect(fd.read(32, 0)).rejects.toThrow("Reading out of bounds");
+            await expect(fd.write(new Uint8Array(1), 0)).rejects.toThrow("read only");
+            await expect(fd.writeULE32(1, 0)).rejects.toThrow("read only");
+            await expect(fd.writeUBE32(1, 0)).rejects.toThrow("read only");
+            await expect(fd.writeULE64(1, 0)).rejects.toThrow("read only");
             await fd.discard(); // close()s; second close via discard is a no-op
-            await expect(fd.readString(0)).to.be.rejectedWith("Reading a closing file");
+            await expect(fd.readString(0)).rejects.toThrow("Reading a closing file");
         });
 
         it("surfaces short reads from a lying blob", async () => {
@@ -366,7 +362,7 @@ describe("fastfile API surface", function () {
                 }
             };
             const fd = await fastFile.readExisting({ type: "blob", blob: fake });
-            await expect(fd.read(50, 0)).to.be.rejectedWith("short blob read");
+            await expect(fd.read(50, 0)).rejects.toThrow("short blob read");
             // the failed page load was evicted, not cached
             assert.strictEqual(fd.pages.size, 0);
         });
@@ -459,7 +455,7 @@ describe("fastfile API surface", function () {
         it("throws on a failing probe", async () => {
             const srv = await startServer(makeData(16), "probe-500");
             try {
-                await expect(fastFile.readExisting(srv.url)).to.be.rejectedWith("HTTP 500");
+                await expect(fastFile.readExisting(srv.url)).rejects.toThrow("HTTP 500");
             } finally { await srv.close(); }
         });
 
@@ -486,7 +482,7 @@ describe("fastfile API surface", function () {
             const srv = await startServer(makeData(1 << 17), "wrong-start");
             try {
                 const fd = await fastFile.readExisting(srv.url);
-                await expect(fd.read(1 << 16, 0)).to.be.rejectedWith("server returned range starting at");
+                await expect(fd.read(1 << 16, 0)).rejects.toThrow("server returned range starting at");
                 fd.close();
             } finally { await srv.close(); }
         });
@@ -495,7 +491,7 @@ describe("fastfile API surface", function () {
             const srv = await startServer(makeData(1 << 17), "overlong");
             try {
                 const fd = await fastFile.readExisting(srv.url);
-                await expect(fd.read(1 << 16, 0)).to.be.rejectedWith("longer than requested");
+                await expect(fd.read(1 << 16, 0)).rejects.toThrow("longer than requested");
                 fd.close();
             } finally { await srv.close(); }
         });
@@ -504,7 +500,7 @@ describe("fastfile API surface", function () {
             const srv = await startServer(makeData(1 << 17), "short");
             try {
                 const fd = await fastFile.readExisting(srv.url);
-                await expect(fd.read(1 << 16, 0)).to.be.rejectedWith("short range response");
+                await expect(fd.read(1 << 16, 0)).rejects.toThrow("short range response");
                 fd.close();
             } finally { await srv.close(); }
         });
@@ -513,9 +509,9 @@ describe("fastfile API surface", function () {
             const srv = await startServer(makeData(1 << 14), "fail-after-probe");
             try {
                 const fd = await fastFile.readExisting(srv.url);
-                await expect(fd.read(4, 0)).to.be.rejectedWith("HTTP 500");
+                await expect(fd.read(4, 0)).rejects.toThrow("HTTP 500");
                 // the rejected page was evicted so a retry issues a new request
-                await expect(fd.read(4, 0)).to.be.rejectedWith("HTTP 500");
+                await expect(fd.read(4, 0)).rejects.toThrow("HTTP 500");
                 fd.close();
             } finally { await srv.close(); }
         });

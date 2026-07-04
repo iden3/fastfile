@@ -1,11 +1,8 @@
 import * as fastFile from "../src/fastfile.js";
 
 import assert from "assert";
-import * as chai from "chai";
-import chaiAsPromised from "chai-as-promised";
+import { expect } from "vitest";
 
-chai.use(chaiAsPromised);
-const expect = chai.expect;
 
 function makeData(n) {
     const data = new Uint8Array(n);
@@ -20,7 +17,6 @@ function makeData(n) {
 }
 
 describe("fastfile testing suite for blobfile", function () {
-    this.timeout(100000);
 
     it("should read positioned ranges from a Blob", async () => {
         const data = makeData(1 << 18);
@@ -43,8 +39,8 @@ describe("fastfile testing suite for blobfile", function () {
 
     it("should reject reads out of bounds and any write", async () => {
         const fd = await fastFile.readExisting(new Blob([makeData(100)]));
-        await expect(fd.read(8, 96)).to.be.rejectedWith(/out of bounds/);
-        await expect(fd.write(new Uint8Array(4), 0)).to.be.rejectedWith(/read only/);
+        await expect(fd.read(8, 96)).rejects.toThrow(/out of bounds/);
+        await expect(fd.write(new Uint8Array(4), 0)).rejects.toThrow(/read only/);
         await fd.close();
     });
 });

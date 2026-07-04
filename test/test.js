@@ -1,4 +1,4 @@
-import assert from "assert";
+import { expect } from "vitest";
 import fs from "fs";
 
 import * as fastFile from "../src/fastfile.js";
@@ -20,14 +20,13 @@ async function readBigInt(f, pos) {
     const n8 = 32;
 
     const buff = await f.read(n8, pos);
-    assert(buff.byteLength == n8);
+    expect(buff.byteLength).toBe(n8);
 
     return Scalar.fromRprLE(buff, 0);
 }
 
 describe("fastfile test", function () {
     let fileName = "test.bin";
-    this.timeout(1000000000);
     const values = {};
 
     it("should write a big file sequentially", async () => {
@@ -43,25 +42,15 @@ describe("fastfile test", function () {
     });
 
     it("should fail if trying to override", async () => {
-        let throwed = false;
-        try {
-            await fastFile.createNoOverride(fileName);
-        } catch (err) {
-            throwed = true;
-        }
-        assert(throwed == true);
+        await expect(fastFile.createNoOverride(fileName)).rejects.toThrow();
     });
 
     it("trying to write a readonly File", async () => {
-        let throwed = false;
-        try {
+        await expect(async () => {
             const f = await fastFile.readExisting(fileName);
             await writeBigInt(f, Scalar.add(q,3), 0);
             await f.close();
-        } catch (err) {
-            throwed = true;
-        }
-        assert(throwed == true);
+        }).rejects.toThrow();
     });
 
     it("should read the file", async () => {
@@ -73,22 +62,7 @@ describe("fastfile test", function () {
                 console.log(Scalar.sub(n, q));
                 console.log(i);
             }
-            assert(Scalar.sub(n, q) == i);
-            if ((i%100000) == 0) console.log("Reading: " + i);
-        }
-        await f.close();
-    });
-
-    it("should read the file", async () => {
-        const f = await fastFile.readExisting(fileName);
-        for (let i=0; i<1000000; i++) {
-            const n = await readBigInt(f, i*32);
-            if (Scalar.sub(n, q) != i) {
-                console.log(f);
-                console.log(Scalar.sub(n, q));
-                console.log(i);
-            }
-            assert(Scalar.sub(n, q) == i);
+            expect(Scalar.sub(n, q) == i).toBe(true);
             if ((i%100000) == 0) console.log("Reading: " + i);
         }
         await f.close();
@@ -106,7 +80,7 @@ describe("fastfile test", function () {
             } else {
                 expectedOldVal = Scalar.add(q,j);
             }
-            assert(Scalar.eq(expectedOldVal, oldVal));
+            expect(Scalar.eq(expectedOldVal, oldVal)).toBe(true);
             const newVal = F.random();
             values[j] = newVal;
             // console.log("Start Writing", j);
@@ -137,7 +111,7 @@ describe("fastfile test", function () {
         const vals = await Promise.all(ops);
 
         for (let i=0; i<vals.length; i++) {
-            assert(Scalar.eq(expectedOldVal[i], vals[i]));
+            expect(Scalar.eq(expectedOldVal[i], vals[i])).toBe(true);
             if ((i%1000) == 0) console.log("Checking Multi: " + i);
         }
         await f.close();
@@ -154,7 +128,7 @@ describe("fastfile test", function () {
             } else {
                 expectedOldVal = Scalar.add(q,j);
             }
-            assert(Scalar.eq(expectedOldVal, oldVal));
+            expect(Scalar.eq(expectedOldVal, oldVal)).toBe(true);
             const newVal = F.random();
             values[j] = newVal;
             await writeBigInt(f, newVal, j*32);
