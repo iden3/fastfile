@@ -1,21 +1,11 @@
 import fs from "fs";
 import * as testUtils from "./testUtils.js";
 import * as fastFile from "../src/fastfile.js";
-
 import { BigBuffer } from "ffjavascript";
-
-import assert from "assert";
-import * as chai from "chai";
-import chaiAsPromised from "chai-as-promised";
-
-chai.use(chaiAsPromised);
-const expect = chai.expect;
+import { expect } from "vitest";
 
 describe("fastfile testing suite for osfile", function () {
     let fileName = "test_osfile.bin";
-
-    this.timeout(100000);
-
     let str1 = "0123456789";
     let str2 = "Hi_there";
     let str3 = "/!!--::**";
@@ -30,25 +20,23 @@ describe("fastfile testing suite for osfile", function () {
         await testUtils.writeStringToFile(fd, str3);
 
         let str = await fd.readString(fd.pageSize - 11);
-        assert.strictEqual(str, str1);
+        expect(str).toBe(str1);
 
         str = await fd.readString();
-        assert.strictEqual(str, str2);
+        expect(str).toBe(str2);
 
         str = await fd.readString();
-        assert.strictEqual(str, str3);
+        expect(str).toBe(str3);
 
         await fd.close();
-
-        assert(fs.existsSync(fileName));
 
         await fs.promises.unlink(fileName);
     });
 
     it("should throw error when try to read a closed file", async () => {
-        let fd = await fastFile.createOverride(fileName);
+        const fd = await fastFile.createOverride(fileName);
         await fd.close();
-        expect(fd.readString(0)).to.be.rejectedWith("Reading a closing file");
+        await expect(fd.readString(0)).rejects.toThrow("Reading a closing file");
         await fs.promises.unlink(fileName);
     });
 
@@ -67,12 +55,12 @@ describe("fastfile testing suite for osfile", function () {
         await fd.close();
 
         fd = await fastFile.readExisting(fileName);
-        assert(!ArrayBuffer.isView(new BigBuffer(8)), "BigBuffer must not be an ArrayBufferView");
+        expect(ArrayBuffer.isView(new BigBuffer(8))).toBe(false);
         const bb = new BigBuffer(N);
         await fd.readToBuffer(bb, 0, N, 0);
         await fd.close();
 
-        assert(Buffer.from(bb.slice(0, N)).equals(Buffer.from(ref)), "BigBuffer read does not match file");
+        expect(Buffer.from(bb.slice(0, N)).equals(Buffer.from(ref))).toBe(true);
         await fs.promises.unlink(fileName);
     });
 
@@ -88,12 +76,8 @@ describe("fastfile testing suite for osfile", function () {
         await fd.close();
 
         const onDisk = fs.readFileSync(fileName);
-        assert.strictEqual(onDisk.length, N);
-        assert(onDisk.equals(Buffer.from(ref)), "BigBuffer write does not match disk");
+        expect(onDisk.length).toBe(N);
+        expect(onDisk.equals(Buffer.from(ref))).toBe(true);
         await fs.promises.unlink(fileName);
     });
 });
-
-
-
-

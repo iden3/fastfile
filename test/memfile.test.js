@@ -1,16 +1,8 @@
 import * as testUtils from "./testUtils.js";
 import * as fastFile from "../src/fastfile.js";
-
-import assert from "assert";
-import * as chai from "chai";
-import chaiAsPromised from "chai-as-promised";
-
-chai.use(chaiAsPromised);
-const expect = chai.expect;
+import { expect } from "vitest";
 
 describe("fastfile testing suite for memfile", function () {
-    this.timeout(100000);
-
     let str1 = "0123456789";
     let str2 = "Hi_there";
     let str3 = "/!!--::**";
@@ -29,13 +21,13 @@ describe("fastfile testing suite for memfile", function () {
         await testUtils.writeStringToFile(fd, str3);
 
         let str = await fd.readString(10);
-        assert.strictEqual(str, str1);
+        expect(str).toBe(str1);
 
         str = await fd.readString();
-        assert.strictEqual(str, str2);
+        expect(str).toBe(str2);
 
         str = await fd.readString();
-        assert.strictEqual(str, str3);
+        expect(str).toBe(str3);
 
         await fd.close();
     });
@@ -47,8 +39,8 @@ describe("fastfile testing suite for memfile", function () {
                 byteLength: 1
             }
         };
-        let fd = await fastFile.readExisting(file);
-        expect(fd.readString(10)).to.be.rejectedWith("Reading out of bounds");
+        const fd = await fastFile.readExisting(file);
+        await expect(fd.readString(10)).rejects.toThrow("Reading out of bounds");
     });
 });
 
