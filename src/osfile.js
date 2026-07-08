@@ -368,8 +368,16 @@ class FastFile {
 
         let p = firstPage;
         let o = pos % self.pageSize;
-        // Remaining bytes to read
+        // Remaining bytes to read (clamped to EOF: a read past the end of a
+        // truncated/short file reads fewer bytes than requested).
         let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
+        // Bytes already written to buffDst -- tracked independently of `r`
+        // (which shrinks on EOF-clamping) so the destination offset stays
+        // correct. Previously computed as `offset + len - r`: with `r`
+        // pre-clamped below `len`, that put the first bytes read at a
+        // nonzero offset instead of the real EOF-truncated tail, silently
+        // shifting valid data to the wrong position in the output buffer.
+        let done = 0;
         while (r>0) {
             await pagePromises[p - firstPage];
             self.__statusPage("After Await (read): ", p);
@@ -377,12 +385,13 @@ class FastFile {
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(self.pages[p].buff.buffer, self.pages[p].buff.byteOffset + o, l);
-            buffDst.set(srcView, offset+len-r);
+            buffDst.set(srcView, offset+done);
             self.pages[p].pendingOps --;
 
             self.__statusPage("After Op done: ", p);
 
             r = r-l;
+            done = done+l;
             p ++;
             o = 0;
             if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));

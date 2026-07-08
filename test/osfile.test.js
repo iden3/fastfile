@@ -92,6 +92,42 @@ describe("fastfile testing suite for osfile", function () {
         assert(onDisk.equals(Buffer.from(ref)), "BigBuffer write does not match disk");
         await fs.promises.unlink(fileName);
     });
+
+    // Regression: readToBuffer's cached-page path (reads below directReadThreshold,
+    // i.e. the common case for most zkey/ptau/wtns sections) computed the
+    // destination-buffer offset as `offset + len - r`, where `r` had already been
+    // clamped to the EOF-truncated byte count. That put the on-disk bytes at a
+    // nonzero offset in the output instead of at the start, and left the START of
+    // the buffer as zeros instead of the tail -- valid bytes silently shifted to
+    // the wrong position rather than the read cleanly failing or zero-padding
+    // only the truncated tail. This simulates a corrupted/incomplete file (a
+    // section header claims more bytes than the file actually has).
+    it("readToBuffer past EOF on a truncated file places real bytes at the start, not shifted (below directReadThreshold)", async () => {
+        const declaredLen = 2000; // < directReadThreshold (1MB): exercises the cached-page path
+        const actualLen = 1000;   // how many bytes actually exist past `pos`
+        const pos = 24;           // simulate a section starting after a small header
+
+        let fd = await fastFile.createOverride(fileName);
+        await fd.write(new Uint8Array(pos + actualLen).fill(0xAB), 0);
+        await fd.close();
+
+        assert.strictEqual(fs.statSync(fileName).size, pos + actualLen);
+
+        fd = await fastFile.readExisting(fileName);
+        const buff = await fd.read(declaredLen, pos);
+        await fd.close();
+
+        assert.strictEqual(buff.length, declaredLen);
+        // The real on-disk bytes must land at the START of the buffer...
+        for (let i = 0; i < actualLen; i++) {
+            assert.strictEqual(buff[i], 0xAB, `expected real data at index ${i}`);
+        }
+        // ...and only the truncated TAIL (bytes that don't exist on disk) is zero.
+        for (let i = actualLen; i < declaredLen; i++) {
+            assert.strictEqual(buff[i], 0, `expected zero padding at index ${i}`);
+        }
+        await fs.promises.unlink(fileName);
+    });
 });
 
 
