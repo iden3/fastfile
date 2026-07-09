@@ -156,7 +156,17 @@ class FastFile {
                         self.__statusPage("After Load (loaded): ", load.page);
                         return res;
                     }, (err) => {
-                        load.reject(err);
+                        // Reject EVERY waiter, not just the first: co-readers of the
+                        // same page were appended to page.loading (not to `load`) and
+                        // would otherwise await forever. Drop the page entirely so a
+                        // later retry re-reads it instead of queueing onto a dead
+                        // loading list.
+                        const page = self.pages[load.page];
+                        const loading = (page && page.loading) ? page.loading : [load];
+                        delete self.pages[load.page];
+                        for (let i=0; i<loading.length; i++) {
+                            loading[i].reject(err);
+                        }
                     }));
                     self.__statusPage("After Load (loading): ", load.page);
                 }
@@ -209,6 +219,13 @@ class FastFile {
                     return;
                 }, (err) => {
                     console.log("ERROR Writing: "+err);
+                    // Clear `writing` (a stuck flag pins the page forever and
+                    // blocks _tryClose) and record the error. write()/read()
+                    // surface it on their next call (fail fast) and close()
+                    // rejects with it -- previously it was only visible at
+                    // close(), so a prover that skipped close on error paths
+                    // silently produced a truncated/corrupt file.
+                    page.writing = false;
                     self.error = err;
                     self._tryClose();
                 }));
@@ -248,6 +265,7 @@ class FastFile {
     async write(buff, pos) {
         if (buff.byteLength == 0) return;
         const self = this;
+        if (self.error) throw self.error;
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+buff.byteLength;
         if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
@@ -330,6 +348,7 @@ class FastFile {
             return;
         }
         const self = this;
+        if (self.error) throw self.error;
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+len;
         if (self.pendingClose)
@@ -407,6 +426,7 @@ class FastFile {
         if (!self.pendingClose) return;
         if (self.error) {
             self.pendingCloseReject(self.error);
+            return;
         }
         const p = self._getDirtyPage();
         if ((p>=0) || (self.writing) || (self.reading) || (self.pendingLoads.length>0)) return;

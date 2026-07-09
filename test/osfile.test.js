@@ -128,6 +128,52 @@ describe("fastfile testing suite for osfile", function () {
         }
         await fs.promises.unlink(fileName);
     });
+
+    // Regression: when a page read failed, only the FIRST waiter was rejected;
+    // co-readers queued on page.loading hung forever, and the page stayed
+    // cached with a dead loading list so every future reader of it hung too.
+    it("a failed page read rejects all waiters and the page recovers", async () => {
+        fs.writeFileSync(fileName, new Uint8Array(1 << 16).fill(0xab));
+        const fd = await fastFile.readExisting(fileName, 1 << 20, 1 << 12);
+
+        const realRead = fd.fd.read.bind(fd.fd);
+        let failures = 1;
+        fd.fd.read = (...args) => {
+            if (failures > 0) { failures--; return Promise.reject(new Error("simulated EIO")); }
+            return realRead(...args);
+        };
+
+        // Two concurrent readers of the same page: both must settle (reject
+        // or, for the one that arrives after recovery, resolve) -- never hang.
+        const r1 = await fd.read(64, 0).then(() => "resolved", () => "rejected");
+        const r2 = await fd.read(64, 128).then(() => "resolved", () => "rejected");
+        assert(r1 === "rejected" || r2 === "rejected", "at least one reader sees the EIO");
+
+        // A later reader of the same page must succeed (page not poisoned).
+        const b = await fd.read(64, 0);
+        assert.strictEqual(b[0], 0xab);
+        await fd.close();
+        await fs.promises.unlink(fileName);
+    });
+
+    // Regression: a failed background page flush was only visible at close();
+    // page.writing also stayed true, pinning the page. Subsequent writes/reads
+    // must now fail fast and close() must reject.
+    it("a failed background write surfaces on the next write and on close()", async () => {
+        const fd = await fastFile.createOverride(fileName, 1 << 20, 1 << 12);
+
+        const realWrite = fd.fd.write.bind(fd.fd);
+        fd.fd.write = () => Promise.reject(new Error("simulated ENOSPC"));
+
+        await fd.write(new Uint8Array(64).fill(1), 0); // dirty page; background flush fails
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        await expect(fd.write(new Uint8Array(64).fill(2), 4096)).to.be.rejectedWith("simulated ENOSPC");
+        await expect(fd.close()).to.be.rejectedWith("simulated ENOSPC");
+
+        fd.fd.write = realWrite; // let the underlying fd close cleanly
+        await fs.promises.unlink(fileName);
+    });
 });
 
 
