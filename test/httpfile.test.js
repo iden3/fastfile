@@ -27,7 +27,7 @@ function makeData(n) {
 // state.data / state.etag may be swapped mid-test to simulate a changed file.
 function startServer(state, opts) {
     opts = opts || {};
-    const log = { requests: [], bytesServed: 0 };
+    const log = { requests: [], bytesServed: 0, maxResponse: 0 };
     const server = http.createServer(function (req, res) {
         const entry = { range: req.headers.range || null, ifRange: req.headers["if-range"] || null };
         log.requests.push(entry);
@@ -54,6 +54,7 @@ function startServer(state, opts) {
             headers["Accept-Ranges"] = "bytes";
             res.writeHead(206, headers);
             log.bytesServed += body.length;
+            log.maxResponse = Math.max(log.maxResponse, body.length);
             res.end(body);
         } else {
             const body = Buffer.from(data);
@@ -190,6 +191,22 @@ describe("fastfile testing suite for httpfile", function () {
             await expect(fd.read(16, 992)).to.be.rejectedWith(/out of bounds/);
             await expect(fd.write(new Uint8Array(4), 0)).to.be.rejectedWith(/read only/);
             await expect(fd.writeULE32(1, 0)).to.be.rejectedWith(/read only/);
+            await fd.close();
+        } finally {
+            await srv.close();
+        }
+    });
+
+    it("should cap disk-tuned page-size hints (small read must not fetch the file)", async () => {
+        const data = makeData(1 << 19);   // 512 KiB, well under an 8 MiB "page"
+        const srv = await startServer({ data: data, etag: "\"v1\"" });
+        try {
+            // snarkjs-style hints: 32 MiB cache, 8 MiB pages (meant for disk)
+            const fd = await fastFile.readExisting(srv.url, 1 << 25, 1 << 23);
+            await fd.read(4, 0);
+            await fd.readULE64(300000);
+            assert.ok(srv.log.maxResponse <= 1 << 16,
+                "largest response was " + srv.log.maxResponse + " bytes; page hint not capped");
             await fd.close();
         } finally {
             await srv.close();

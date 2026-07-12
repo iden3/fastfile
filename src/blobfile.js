@@ -5,6 +5,12 @@
 
 import { RangeFile } from "./rangefile.js";
 
+// Same rationale as httpfile's cap, relaxed for a local source: callers pass
+// disk-tuned page sizes (MiBs) that would make every small header read
+// materialize a huge slice; 1 MiB keeps that bounded while costing at most a
+// handful of slice reads per file open.
+const MAX_BLOB_PAGE_SIZE = 1 << 20;
+
 export function readExisting(o) {
     const blob = o.blob;
     const readRangeInto = async function (dst, dstOffset, pos, len) {
@@ -14,5 +20,6 @@ export function readExisting(o) {
         }
         dst.set(new Uint8Array(ab), dstOffset);
     };
-    return new RangeFile(readRangeInto, blob.size, o.cacheSize, o.pageSize);
+    const pageSize = Math.min(o.pageSize || MAX_BLOB_PAGE_SIZE, MAX_BLOB_PAGE_SIZE);
+    return new RangeFile(readRangeInto, blob.size, o.cacheSize, pageSize);
 }

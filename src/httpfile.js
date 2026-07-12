@@ -20,6 +20,15 @@
 import { RangeFile } from "./rangefile.js";
 import * as memFile from "./memfile.js";
 
+// Callers tune cacheSize/pageSize for the disk backend (snarkjs passes 8 MiB
+// pages); over HTTP a page that large turns a 4-byte header read into a
+// megabytes-range request -- for files below the page size, the whole file in
+// one response, defeating streaming. Cap pages at 64 KiB: big enough to
+// coalesce a binfile section-table scan, small enough to stay incidental.
+// Reads >= the page size bypass the cache entirely (RangeFile direct path),
+// so large section/chunk reads are unaffected by the cap.
+const MAX_HTTP_PAGE_SIZE = 1 << 16;
+
 export async function readExisting(o) {
     const url = o.url;
     const probe = await fetch(url, { headers: { "Range": "bytes=0-0" } });
@@ -35,7 +44,8 @@ export async function readExisting(o) {
             const readRangeInto = function (dst, dstOffset, pos, len) {
                 return httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
             };
-            return new RangeFile(readRangeInto, totalSize, o.cacheSize, o.pageSize);
+            const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
+            return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);
         }
         // 206 but total size unknown (Content-Range: bytes 0-0/*): we cannot
         // do bounded positioned reads; refetch whole and buffer.

@@ -1179,6 +1179,15 @@ function decodeChunks(chunks) {
 
 // Read-only file over HTTP(S) using Range requests.
 
+// Callers tune cacheSize/pageSize for the disk backend (snarkjs passes 8 MiB
+// pages); over HTTP a page that large turns a 4-byte header read into a
+// megabytes-range request -- for files below the page size, the whole file in
+// one response, defeating streaming. Cap pages at 64 KiB: big enough to
+// coalesce a binfile section-table scan, small enough to stay incidental.
+// Reads >= the page size bypass the cache entirely (RangeFile direct path),
+// so large section/chunk reads are unaffected by the cap.
+const MAX_HTTP_PAGE_SIZE = 1 << 16;
+
 async function readExisting$2(o) {
     const url = o.url;
     const probe = await fetch(url, { headers: { "Range": "bytes=0-0" } });
@@ -1194,7 +1203,8 @@ async function readExisting$2(o) {
             const readRangeInto = function (dst, dstOffset, pos, len) {
                 return httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
             };
-            return new RangeFile(readRangeInto, totalSize, o.cacheSize, o.pageSize);
+            const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
+            return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);
         }
         // 206 but total size unknown (Content-Range: bytes 0-0/*): we cannot
         // do bounded positioned reads; refetch whole and buffer.
@@ -1294,6 +1304,12 @@ async function abandonBody(res) {
 
 // Read-only file over a Blob/File (e.g. a browser <input type="file">
 
+// Same rationale as httpfile's cap, relaxed for a local source: callers pass
+// disk-tuned page sizes (MiBs) that would make every small header read
+// materialize a huge slice; 1 MiB keeps that bounded while costing at most a
+// handful of slice reads per file open.
+const MAX_BLOB_PAGE_SIZE = 1 << 20;
+
 function readExisting$1(o) {
     const blob = o.blob;
     const readRangeInto = async function (dst, dstOffset, pos, len) {
@@ -1303,7 +1319,8 @@ function readExisting$1(o) {
         }
         dst.set(new Uint8Array(ab), dstOffset);
     };
-    return new RangeFile(readRangeInto, blob.size, o.cacheSize, o.pageSize);
+    const pageSize = Math.min(o.pageSize || MAX_BLOB_PAGE_SIZE, MAX_BLOB_PAGE_SIZE);
+    return new RangeFile(readRangeInto, blob.size, o.cacheSize, pageSize);
 }
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
