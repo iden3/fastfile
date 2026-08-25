@@ -126,10 +126,14 @@ async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
             done += it.value.byteLength;
         }
     } else {
+        // coverage: fetch implementations without a streaming body (older
+        // browser polyfills); Node's undici always streams
+        /* c8 ignore start */
         const buff = new Uint8Array(await res.arrayBuffer());
         if (buff.byteLength > len) throw new Error(url + ": range response longer than requested");
         dst.set(buff, dstOffset);
         done = buff.byteLength;
+        /* c8 ignore stop */
     }
     if (done !== len) {
         throw new Error(url + ": short range response (" + done + "/" + len + " bytes at " + pos + ")");
@@ -139,6 +143,7 @@ async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
 async function abandonBody(res) {
     try {
         if (res.body && typeof res.body.cancel === "function") await res.body.cancel();
+        /* c8 ignore next -- non-streaming fetch polyfills only */
         else await res.arrayBuffer();
     } catch (e) { /* body teardown is best-effort */ }
 }

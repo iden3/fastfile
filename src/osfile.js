@@ -53,6 +53,8 @@ class FastFile {
         return P;
     }
 
+    // coverage: debug instrumentation, only enabled by hand (this.logHistory)
+    /* c8 ignore start */
     __statusPage(s, p) {
         const logEntry = [];
         const self=this;
@@ -89,6 +91,8 @@ class FastFile {
     }
 
 
+
+    /* c8 ignore stop */
 
     _triggerLoad() {
         const self = this;

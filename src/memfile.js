@@ -162,11 +162,14 @@ class MemFile {
 
         let currentPosition = typeof pos == "undefined" ? self.pos : pos;
 
-        if (currentPosition > this.totalSize) {
+        if (currentPosition >= this.totalSize) {
             if (this.readOnly) {
                 throw new Error("Reading out of bounds");
             }
-            this._resizeIfNeeded(pos);
+            // Past the written data there is no string to read. (This used to
+            // grow the allocation and then build a negative-length view, which
+            // threw a RangeError.)
+            return "";
         }
         const dataArray = new Uint8Array(
             self.o.data.buffer,
