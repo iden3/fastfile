@@ -158,7 +158,8 @@ export class RangeFile {
     }
 
     async close() {
-        if (this.pendingClose) throw new Error("Closing the file twice");
+        // Idempotent: a second close is a no-op, matching the os backend.
+        if (this.pendingClose) return;
         this.pendingClose = true;
         this.pages.clear();
     }

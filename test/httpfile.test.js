@@ -213,6 +213,19 @@ describe("fastfile testing suite for httpfile", function () {
         }
     });
 
+    it("close() is idempotent on the http backend", async () => {
+        const data = makeData(1 << 12);
+        const srv = await startServer({ data: data, etag: "\"v1\"" });
+        try {
+            const fd = await fastFile.readExisting(srv.url);
+            await fd.read(4, 0);
+            await fd.close();
+            await fd.close(); // second close: no-op, no throw
+        } finally {
+            await srv.close();
+        }
+    });
+
     it("should read strings through the page cache", async () => {
         const data = makeData(9000);
         const msg = "hello_snarkjs";

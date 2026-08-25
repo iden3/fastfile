@@ -435,9 +435,11 @@ class FastFile {
 
     close() {
         const self = this;
-        if (self.pendingClose)
-            throw new Error("Closing the file twice");
-        return new Promise((resolve, reject) => {
+        // Idempotent, matching fs.promises.FileHandle.close(): repeated calls
+        // return the same promise, so cleanup code (e.g. a finally block) can
+        // close unconditionally. Reads/writes after close still throw.
+        if (self.closePromise) return self.closePromise;
+        self.closePromise = new Promise((resolve, reject) => {
             self.pendingClose = resolve;
             self.pendingCloseReject = reject;
             self._tryClose();
@@ -447,6 +449,7 @@ class FastFile {
             self.fd.close();
             throw (err);
         });
+        return self.closePromise;
     }
 
     async discard() {

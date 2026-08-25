@@ -159,6 +159,37 @@ describe("fastfile testing suite for osfile", function () {
     // Regression: a failed background page flush was only visible at close();
     // page.writing also stayed true, pinning the page. Subsequent writes/reads
     // must now fail fast and close() must reject.
+    it("close() is idempotent: repeated and concurrent closes resolve", async () => {
+        const fd = await fastFile.createOverride(fileName);
+        await testUtils.writeStringToFile(fd, str1);
+
+        // concurrent double close: both settle without throwing
+        await Promise.all([fd.close(), fd.close()]);
+        // close after close: still a no-op
+        await fd.close();
+
+        // I/O after close keeps failing fast
+        await expect(fd.read(4, 0)).to.be.rejectedWith("Reading a closing file");
+
+        await fs.promises.unlink(fileName);
+    });
+
+    it("a failing close() rejects every caller with the same error", async () => {
+        const fd = await fastFile.createOverride(fileName, 1 << 20, 1 << 12);
+
+        const realWrite = fd.fd.write.bind(fd.fd);
+        fd.fd.write = () => Promise.reject(new Error("simulated ENOSPC"));
+        await fd.write(new Uint8Array(64).fill(1), 0); // dirty page; flush will fail
+
+        await expect(fd.close()).to.be.rejectedWith("simulated ENOSPC");
+        // the repeated close reports the same failure instead of throwing
+        // "Closing the file twice"
+        await expect(fd.close()).to.be.rejectedWith("simulated ENOSPC");
+
+        fd.fd.write = realWrite;
+        await fs.promises.unlink(fileName);
+    });
+
     it("a failed background write surfaces on the next write and on close()", async () => {
         const fd = await fastFile.createOverride(fileName, 1 << 20, 1 << 12);
 
