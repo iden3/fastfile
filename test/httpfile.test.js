@@ -226,6 +226,68 @@ describe("fastfile testing suite for httpfile", function () {
         }
     });
 
+    it("degrades to full buffering when the origin stops honoring Range (matching validator)", async () => {
+        // Browser scenario: the probe is answered 206 by an HTTP cache, but
+        // the origin itself ignores Range and answers 200 with the same
+        // strong ETag. Reads must succeed via buffered mode, not throw
+        // "file changed".
+        const data = makeData(1 << 18);
+        let first = true;
+        const server = http.createServer((req, res) => {
+            if (first && req.headers.range === "bytes=0-0") {
+                first = false;
+                res.writeHead(206, {
+                    "Content-Range": "bytes 0-0/" + data.length,
+                    "Content-Length": 1,
+                    "ETag": "\"stable\"",
+                });
+                return res.end(Buffer.from(data.slice(0, 1)));
+            }
+            res.writeHead(200, { "Content-Length": data.length, "ETag": "\"stable\"" });
+            res.end(Buffer.from(data));
+        });
+        await new Promise((r) => server.listen(0, "127.0.0.1", r));
+        const url = "http://127.0.0.1:" + server.address().port + "/data.bin";
+        try {
+            const fd = await fastFile.readExisting(url);
+            assert.strictEqual(fd.totalSize, data.length);
+            const head = await fd.read(8, 0);
+            assert.deepStrictEqual([...head], [...data.slice(0, 8)]);
+            const mid = await fd.read(1 << 12, 1 << 17);
+            assert.deepStrictEqual([...mid], [...data.slice(1 << 17, (1 << 17) + (1 << 12))]);
+            await fd.close();
+        } finally {
+            await new Promise((r) => server.close(r));
+        }
+    });
+
+    it("still fails hard when a mid-session 200 carries a different validator", async () => {
+        const data = makeData(1 << 16);
+        let first = true;
+        const server = http.createServer((req, res) => {
+            if (first && req.headers.range === "bytes=0-0") {
+                first = false;
+                res.writeHead(206, {
+                    "Content-Range": "bytes 0-0/" + data.length,
+                    "Content-Length": 1,
+                    "ETag": "\"v1\"",
+                });
+                return res.end(Buffer.from(data.slice(0, 1)));
+            }
+            res.writeHead(200, { "Content-Length": data.length, "ETag": "\"v2\"" });
+            res.end(Buffer.from(data));
+        });
+        await new Promise((r) => server.listen(0, "127.0.0.1", r));
+        const url = "http://127.0.0.1:" + server.address().port + "/data.bin";
+        try {
+            const fd = await fastFile.readExisting(url);
+            await expect(fd.read(64, 0)).to.be.rejectedWith(/file changed/);
+            await fd.close();
+        } finally {
+            await new Promise((r) => server.close(r));
+        }
+    });
+
     it("should read strings through the page cache", async () => {
         const data = makeData(9000);
         const msg = "hello_snarkjs";
