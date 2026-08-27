@@ -140,7 +140,10 @@ const f = await fastFile.readExisting({
 
 Entries are keyed by URL plus the server's strong validator (ETag /
 Last-Modified) and are dropped when the remote file changes; without a
-strong validator nothing is cached. Total storage is bounded (`maxBytes`,
+strong validator nothing is cached. Works for Range-less servers too: the
+first session persists the fully-downloaded body, and later sessions probe
+conditionally (If-None-Match / If-Modified-Since) -- an unchanged file
+answers a bodyless 304 and every read is served locally. Total storage is bounded (`maxBytes`,
 default 512 MiB) with least-recently-opened files evicted first. Where
 IndexedDB is unavailable (Node, private windows, blocked storage) the option
 is a silent no-op and reads stream as usual.

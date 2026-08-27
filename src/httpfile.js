@@ -19,7 +19,7 @@
 
 import { RangeFile } from "./rangefile.js";
 import * as memFile from "./memfile.js";
-import { wrapWithPersistentCache } from "./idbcache.js";
+import { wrapWithPersistentCache, peekPersistentMeta, persistFullBody } from "./idbcache.js";
 
 // Callers tune cacheSize/pageSize for the disk backend (snarkjs passes 8 MiB
 // pages); over HTTP a page that large turns a 4-byte header read into a
@@ -32,7 +32,30 @@ const MAX_HTTP_PAGE_SIZE = 1 << 16;
 
 export async function readExisting(o) {
     const url = o.url;
-    const probe = await fetch(url, { headers: { "Range": "bytes=0-0" } });
+    // With the persistent cache on, probe conditionally: if we hold cached
+    // blocks for this URL, an unchanged file answers 304 with no body --
+    // which is what makes warm starts work even against servers that ignore
+    // Range and would otherwise ship the entire file in the probe response.
+    const cacheMeta = o.persistentCache
+        ? await peekPersistentMeta({ fileKey: url, options: o.persistentCache })
+        : null;
+    const probeHeaders = { "Range": "bytes=0-0" };
+    if (cacheMeta && cacheMeta.validator) {
+        if (cacheMeta.validator[0] === "\"" || cacheMeta.validator.indexOf("W/") === 0) {
+            probeHeaders["If-None-Match"] = cacheMeta.validator;
+        } else {
+            probeHeaders["If-Modified-Since"] = cacheMeta.validator;
+        }
+    }
+    const probe = await fetch(url, { headers: probeHeaders });
+
+    if (probe.status === 304) {
+        // Unchanged since it was cached. Serve through the cache; missing
+        // blocks go over range requests, or through the degrade-to-full path
+        // when the origin turns out to ignore Range.
+        await abandonBody(probe);
+        return await buildStreamingFile(url, cacheMeta.validator, cacheMeta.totalSize, o);
+    }
 
     if (probe.status === 206) {
         const contentRange = probe.headers.get("content-range");
@@ -42,42 +65,7 @@ export async function readExisting(o) {
             // Drain the 1-byte probe body so the connection can be reused.
             await probe.arrayBuffer();
             const validator = strongValidator(probe);
-            // Degrade-to-buffering escape hatch: a 206 probe answer can come
-            // from an intermediary (browsers satisfy ranges out of their own
-            // HTTP cache of a full 200), while the origin itself ignores
-            // Range. When a later range request gets a 200 whose strong
-            // validator still matches, the file is unchanged -- buffer that
-            // full body once and serve every subsequent read from it.
-            let fullBody = null;
-            let readRangeInto = async function (dst, dstOffset, pos, len) {
-                if (!fullBody) {
-                    try {
-                        return await httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
-                    } catch (err) {
-                        if (!err || !err.degradeToFull) throw err;
-                        fullBody = err.fullBodyPromise;
-                    }
-                }
-                const data = await fullBody;
-                if (pos + len > data.byteLength) {
-                    throw new Error(url + ": read past the end of the buffered body");
-                }
-                dst.set(data.subarray(pos, pos + len), dstOffset);
-            };
-            const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
-            if (o.persistentCache) {
-                // Opt-in warm start: persist fetched blocks in IndexedDB so
-                // a later session against the same URL reads locally. Keyed
-                // on the strong validator -- without one the wrapper
-                // declines and this stays a plain streaming reader.
-                readRangeInto = await wrapWithPersistentCache(readRangeInto, {
-                    fileKey: url,
-                    validator: validator,
-                    totalSize: totalSize,
-                    options: o.persistentCache,
-                });
-            }
-            return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);
+            return await buildStreamingFile(url, validator, totalSize, o);
         }
         // 206 but total size unknown (Content-Range: bytes 0-0/*): we cannot
         // do bounded positioned reads; refetch whole and buffer.
@@ -100,7 +88,63 @@ export async function readExisting(o) {
 
     // 200: the server ignored Range and sent the whole file; reuse this body.
     const data = new Uint8Array(await probe.arrayBuffer());
+    if (o.persistentCache) {
+        // Persist the body so the next session's conditional probe gets a
+        // bodyless 304 and reads locally. Best-effort, validator-keyed.
+        const validator = strongValidator(probe);
+        if (validator) {
+            await persistFullBody({
+                fileKey: url,
+                validator: validator,
+                totalSize: data.length,
+                options: o.persistentCache,
+                data: data,
+            });
+        }
+    }
     return memFile.readExisting({ type: "mem", data: data });
+}
+
+// Positioned reader over range requests with the degrade-to-buffering escape
+// hatch, optionally wrapped with the persistent block cache, presented as a
+// RangeFile. Shared by the fresh (206 probe) and warm (304 probe) paths.
+async function buildStreamingFile(url, validator, totalSize, o) {
+    // Degrade-to-buffering escape hatch: a 206 probe answer can come from an
+    // intermediary (browsers satisfy ranges out of their own HTTP cache of a
+    // full 200), while the origin itself ignores Range. When a later range
+    // request gets a 200 whose strong validator still matches, the file is
+    // unchanged -- buffer that full body once and serve every subsequent
+    // read from it.
+    let fullBody = null;
+    let readRangeInto = async function (dst, dstOffset, pos, len) {
+        if (!fullBody) {
+            try {
+                return await httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
+            } catch (err) {
+                if (!err || !err.degradeToFull) throw err;
+                fullBody = err.fullBodyPromise;
+            }
+        }
+        const data = await fullBody;
+        if (pos + len > data.byteLength) {
+            throw new Error(url + ": read past the end of the buffered body");
+        }
+        dst.set(data.subarray(pos, pos + len), dstOffset);
+    };
+    const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
+    if (o.persistentCache) {
+        // Opt-in warm start: persist fetched blocks in IndexedDB so a later
+        // session against the same URL reads locally. Keyed on the strong
+        // validator -- without one the wrapper declines and this stays a
+        // plain streaming reader.
+        readRangeInto = await wrapWithPersistentCache(readRangeInto, {
+            fileKey: url,
+            validator: validator,
+            totalSize: totalSize,
+            options: o.persistentCache,
+        });
+    }
+    return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);
 }
 
 async function readFullyToMem(url) {

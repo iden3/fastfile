@@ -26,8 +26,9 @@
 // Prototype limitations (documented, deliberate):
 //   - concurrent readers of the same cold block both fetch it (last write
 //     wins; bytes are identical by the validator guard);
-//   - the degraded full-body path and the no-Range fallback are not
-//     persisted; only the streaming path populates the cache;
+//   - the 206-unknown-total and 416 fallbacks are not persisted; the
+//     streaming path and the Range-less 200 path both populate the cache
+//     (the latter via persistFullBody + conditional 304 probes);
 //   - eviction only runs at open, not while a session writes new blocks.
 
 const DEFAULT_BLOCK_SIZE = 1 << 21;   // 2 MiB: amortizes IDB per-op cost
@@ -265,4 +266,67 @@ export async function wrapWithPersistentCache(readRangeInto, o) {
         // let waiters fall through to IndexedDB
         for (const e of toPersist) inFlight.delete(e.index);
     };
+}
+
+// Peek at what the cache knows about a URL before any network request.
+// Returns { validator, totalSize, blockSize, bytes } or null. Used to send a
+// conditional probe (If-None-Match / If-Modified-Since): an unchanged file
+// answers 304 with no body, which is what makes warm starts work even
+// against servers that ignore Range and would otherwise ship the whole file
+// in the probe response.
+export async function peekPersistentMeta(o) {
+    const opts = (typeof o.options === "object" && o.options) || {};
+    const dbName = opts.dbName || DEFAULT_DB_NAME;
+    if (typeof indexedDB === "undefined") return null;
+    try {
+        const db = await openDb(dbName);
+        const tx = db.transaction("files", "readonly");
+        const meta = await idbReq(tx.objectStore("files").get(o.fileKey));
+        await txDone(tx);
+        return meta ? { validator: meta.validator, totalSize: meta.totalSize, blockSize: meta.blockSize, bytes: meta.bytes } : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// Persist a fully-downloaded body (the Range-less server path) so the next
+// session can warm-start from it. Blocks are written in bounded batches;
+// meta.bytes is set to the exact total afterwards (overwrites make
+// incremental accounting drift). Best-effort: returns false when the
+// environment has no usable IndexedDB or a write fails.
+export async function persistFullBody(o) {
+    const { fileKey, validator, totalSize, data } = o;
+    const opts = (typeof o.options === "object" && o.options) || {};
+    const blockSize = opts.blockSize || DEFAULT_BLOCK_SIZE;
+    const maxBytes = opts.maxBytes || DEFAULT_MAX_BYTES;
+    const dbName = opts.dbName || DEFAULT_DB_NAME;
+    if (typeof indexedDB === "undefined" || !validator) return false;
+    try {
+        const db = await openDb(dbName);
+        await prepareFile(db, fileKey, validator, totalSize, blockSize, maxBytes);
+        const nBlocks = Math.ceil(totalSize / blockSize);
+        const BATCH = 64;
+        for (let b0 = 0; b0 < nBlocks; b0 += BATCH) {
+            const tx = db.transaction("blocks", "readwrite");
+            const blocks = tx.objectStore("blocks");
+            for (let b = b0; b < Math.min(b0 + BATCH, nBlocks); b++) {
+                const s = b * blockSize;
+                blocks.put(data.slice(s, Math.min(s + blockSize, totalSize)), [fileKey, b]);
+            }
+            await txDone(tx);
+        }
+        const tx = db.transaction("files", "readwrite");
+        const files = tx.objectStore("files");
+        const meta = await idbReq(files.get(fileKey));
+        /* c8 ignore else -- meta vanishes only if another tab evicts mid-write */
+        if (meta) {
+            meta.bytes = totalSize;
+            meta.lastUsed = Date.now();
+            files.put(meta, fileKey);
+        }
+        await txDone(tx);
+        return true;
+    } catch (e) {
+        return false;
+    }
 }

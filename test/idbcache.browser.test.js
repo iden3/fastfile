@@ -182,6 +182,77 @@ describe("IndexedDB persistent block cache", function () {
         expect(counter.count - afterOpen).toBeLessThanOrEqual(2);
     });
 
+    it("full-download servers: body persists cold, 304 probe serves warm from cache", async () => {
+        const dbName = "fastfile-test-fulldl";
+        await clearDb(dbName);
+        const content = makeContent(11);
+        const etag = "\"full-v1\"";
+        const counter = { count: 0, bytes: 0 };
+        // Range-less origin honoring conditional requests: If-None-Match
+        // match -> bodyless 304; otherwise 200 with the whole body.
+        const fullServer = (url, opts) => {
+            counter.count++;
+            const inm = opts && opts.headers && opts.headers["If-None-Match"];
+            if (inm === etag) {
+                return Promise.resolve({ ok: false, status: 304, headers: new Headers({ etag }),
+                    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)), body: null });
+            }
+            counter.bytes += content.length;
+            return Promise.resolve({ ok: true, status: 200, headers: new Headers({ etag }),
+                arrayBuffer: () => Promise.resolve(content.buffer.slice(0)), body: null });
+        };
+        vi.stubGlobal("fetch", fullServer);
+
+        const url = "https://cache.example/fulldl.zkey";
+        // cold: 200 with the whole body; body gets persisted
+        const fd = await openCached(url, { blockSize: BLOCK, dbName });
+        expect(fd.totalSize).toBe(content.length);
+        const a = await fd.read(64, 12345);
+        expect([...a]).toEqual([...content.subarray(12345, 12345 + 64)]);
+        await fd.close();
+        expect(counter.count).toBe(1);
+        expect(counter.bytes).toBe(content.length);
+
+        // warm: conditional probe -> 304, no body; reads served from IDB
+        const fd2 = await openCached(url, { blockSize: BLOCK, dbName });
+        expect(fd2.totalSize).toBe(content.length);
+        const b = await fd2.read(3 * BLOCK, BLOCK + 17);
+        expect([...b.slice(0, 8)]).toEqual([...content.subarray(BLOCK + 17, BLOCK + 25)]);
+        const tail = await fd2.read(100, FILE_SIZE - 100);
+        expect([...tail]).toEqual([...content.subarray(FILE_SIZE - 100)]);
+        await fd2.close();
+        expect(counter.count).toBe(2);              // just the 304 probe
+        expect(counter.bytes).toBe(content.length); // no second body
+
+        // changed file: validator mismatch -> fresh 200, new bytes served
+        const v2 = makeContent(12);
+        const c2 = { count: 0, bytes: 0 };
+        const etag2 = "\"full-v2\"";
+        vi.stubGlobal("fetch", (u, opts) => {
+            c2.count++;
+            const inm = opts && opts.headers && opts.headers["If-None-Match"];
+            if (inm === etag2) {
+                return Promise.resolve({ ok: false, status: 304, headers: new Headers({ etag: etag2 }),
+                    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)), body: null });
+            }
+            c2.bytes += v2.length;
+            return Promise.resolve({ ok: true, status: 200, headers: new Headers({ etag: etag2 }),
+                arrayBuffer: () => Promise.resolve(v2.buffer.slice(0)), body: null });
+        });
+        const fd3 = await openCached(url, { blockSize: BLOCK, dbName });
+        const g = await fd3.read(64, 0);
+        expect([...g]).toEqual([...v2.subarray(0, 64)]);
+        await fd3.close();
+        expect(c2.bytes).toBe(v2.length); // one fresh body, re-persisted
+
+        // and the new version is warm on the next open
+        const fd4 = await openCached(url, { blockSize: BLOCK, dbName });
+        const h = await fd4.read(64, 0);
+        expect([...h]).toEqual([...v2.subarray(0, 64)]);
+        await fd4.close();
+        expect(c2.bytes).toBe(v2.length); // still only the one body
+    });
+
     it("without a strong validator the reader works but nothing persists", async () => {
         const dbName = "fastfile-test-noval";
         await clearDb(dbName);
