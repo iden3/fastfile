@@ -77,6 +77,41 @@ function startServer(state, opts) {
 
 describe("fastfile testing suite for httpfile", function () {
 
+    it("caps concurrent range fetches below the browser connection limit", async () => {
+        const data = makeData(1 << 20);
+        let inFlight = 0, maxInFlight = 0;
+        const fakeFetch = async (url, opts) => {
+            const m = /bytes=(\d+)-(\d+)/.exec((opts && opts.headers && opts.headers["Range"]) || "");
+            const from = m ? parseInt(m[1]) : 0;
+            const to = m ? Math.min(parseInt(m[2]), data.length - 1) : data.length - 1;
+            inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+            await new Promise((r) => setTimeout(r, 20));
+            inFlight--;
+            return {
+                ok: true, status: 206,
+                headers: new Map([
+                    ["content-range", `bytes ${from}-${to}/${data.length}`],
+                    ["etag", "\"cap\""],
+                ]),
+                arrayBuffer: async () => data.slice(from, to + 1).buffer,
+                body: null,
+            };
+        };
+        fakeFetch.headersGet = true;
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (u, o) => fakeFetch(u, o).then((r) => ({ ...r, headers: { get: (k) => r.headers.get(k.toLowerCase()) } }));
+        try {
+            const fd = await fastFile.readExisting({ type: "http", url: "http://cap.example/f.bin" });
+            const reads = [];
+            for (let k = 0; k < 12; k++) reads.push(fd.read(70000, k * 80000)); // > pageSize: direct path
+            await Promise.all(reads);
+            await fd.close();
+            assert.ok(maxInFlight <= 4, "expected <= 4 concurrent range fetches, saw " + maxInFlight);
+        } finally {
+            globalThis.fetch = realFetch;
+        }
+    });
+
     it("persistentCache is a no-op where IndexedDB does not exist (Node)", async () => {
         const data = makeData(1 << 18);
         const srv = await startServer({ data: data, etag: "\"v1\"" });

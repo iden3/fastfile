@@ -120,7 +120,36 @@ function strongValidator(res) {
     return null;
 }
 
+// Browsers cap HTTP/1.1 connections per host (Chrome: 6). A prover's
+// read-ahead can put more range requests in flight than that; on a
+// bandwidth-limited link the extra requests then queue behind stalled
+// not-yet-consumed responses and the connection pool deadlocks -- observed
+// as a browser proof of a 1 GiB zkey freezing with exactly six open
+// responses. Cap concurrent range fetches below the browser's limit, and
+// hold each slot until the response body is fully consumed (that is when
+// the connection actually frees).
+const MAX_CONCURRENT_RANGE_FETCHES = 4;
+let activeRangeFetches = 0;
+const rangeFetchQueue = [];
+async function withRangeFetchSlot(fn) {
+    while (activeRangeFetches >= MAX_CONCURRENT_RANGE_FETCHES) {
+        await new Promise((res) => rangeFetchQueue.push(res));
+    }
+    activeRangeFetches++;
+    try {
+        return await fn();
+    } finally {
+        activeRangeFetches--;
+        const next = rangeFetchQueue.shift();
+        if (next) next();
+    }
+}
+
 async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
+    return withRangeFetchSlot(() => httpReadRangeIntoUnlimited(url, validator, dst, dstOffset, pos, len));
+}
+
+async function httpReadRangeIntoUnlimited(url, validator, dst, dstOffset, pos, len) {
     const headers = { "Range": "bytes=" + pos + "-" + (pos + len - 1) };
     if (validator) headers["If-Range"] = validator;
     const res = await fetch(url, { headers: headers });

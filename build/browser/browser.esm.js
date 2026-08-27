@@ -426,7 +426,7 @@ async function N(e) {
 			await r.arrayBuffer();
 			let a = F(r), o = null, s = async function(e, t, r, i) {
 				if (!o) try {
-					return await I(n, a, e, t, r, i);
+					return await B(n, a, e, t, r, i);
 				} catch (e) {
 					if (!e || !e.degradeToFull) throw e;
 					o = e.fullBodyPromise;
@@ -469,7 +469,22 @@ function F(e) {
 	let t = e.headers.get("etag");
 	return t && t.indexOf("W/") !== 0 ? t : e.headers.get("last-modified") || null;
 }
-async function I(e, t, n, r, i, a) {
+var I = 4, L = 0, R = [];
+async function z(e) {
+	for (; L >= I;) await new Promise((e) => R.push(e));
+	L++;
+	try {
+		return await e();
+	} finally {
+		L--;
+		let e = R.shift();
+		e && e();
+	}
+}
+async function B(e, t, n, r, i, a) {
+	return z(() => V(e, t, n, r, i, a));
+}
+async function V(e, t, n, r, i, a) {
 	let o = { Range: "bytes=" + i + "-" + (i + a - 1) };
 	t && (o["If-Range"] = t);
 	let s = await fetch(e, { headers: o });
@@ -479,11 +494,11 @@ async function I(e, t, n, r, i, a) {
 			let t = /* @__PURE__ */ Error(e + ": origin ignored Range; degrading to full buffering");
 			throw t.degradeToFull = !0, t.fullBodyPromise = s.arrayBuffer().then((e) => new Uint8Array(e)), t;
 		}
-		throw await L(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
+		throw await H(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
 	}
-	if (s.status !== 206) throw await L(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
+	if (s.status !== 206) throw await H(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
 	let c = s.headers.get("content-range"), l = c ? /bytes\s+(\d+)-(\d+)\//.exec(c) : null;
-	if (l && parseInt(l[1]) !== i) throw await L(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
+	if (l && parseInt(l[1]) !== i) throw await H(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
 	let u = 0;
 	if (s.body && typeof s.body.getReader == "function") {
 		let t = s.body.getReader();
@@ -501,43 +516,43 @@ async function I(e, t, n, r, i, a) {
 	}
 	if (u !== a) throw Error(e + ": short range response (" + u + "/" + a + " bytes at " + i + ")");
 }
-async function L(e) {
+async function H(e) {
 	try {
 		e.body && typeof e.body.cancel == "function" ? await e.body.cancel() : await e.arrayBuffer();
 	} catch {}
 }
 //#endregion
 //#region src/blobfile.js
-var R = 1 << 20;
-function z(e) {
+var U = 1 << 20;
+function W(e) {
 	let t = e.blob, n = async function(e, n, r, i) {
 		let a = await t.slice(r, r + i).arrayBuffer();
 		if (a.byteLength !== i) throw Error("short blob read (" + a.byteLength + "/" + i + " bytes at " + r + ")");
 		e.set(new Uint8Array(a), n);
-	}, r = Math.min(e.pageSize || R, R);
+	}, r = Math.min(e.pageSize || U, U);
 	return new y(n, t.size, e.cacheSize, r);
 }
 //#endregion
 //#region src/fastfile.browser.js
-function B() {
+function G() {
 	throw Error("File I/O is not supported in the browser");
 }
-function V(e) {
+function K(e) {
 	return e instanceof Uint8Array ? {
 		type: "mem",
 		data: e
-	} : (typeof e == "string" && B(), e);
+	} : (typeof e == "string" && G(), e);
 }
-function H(e, t, n) {
-	if (e.type === "file" && B(), e.type === "mem") return t(e);
+function q(e, t, n) {
+	if (e.type === "file" && G(), e.type === "mem") return t(e);
 	if (e.type === "bigMem") return n(e);
 	throw Error("Invalid FastFile type: " + e.type);
 }
-function U(t) {
-	return H(V(t), e, l);
+function J(t) {
+	return q(K(t), e, l);
 }
-var W = U;
-async function G(e, n, r) {
+var Y = J;
+async function X(e, n, r) {
 	return e instanceof Uint8Array && (e = {
 		type: "mem",
 		data: e
@@ -551,11 +566,11 @@ async function G(e, n, r) {
 		url: e,
 		cacheSize: n,
 		pageSize: r
-	}), e.type === "http" ? await N(e) : e.type === "blob" ? z(e) : H(e, t, u);
+	}), e.type === "http" ? await N(e) : e.type === "blob" ? W(e) : q(e, t, u);
 }
-function K(e) {
-	return typeof e == "string" && B(), H(e, n, d);
+function Z(e) {
+	return typeof e == "string" && G(), q(e, n, d);
 }
-var q = K;
+var Q = Z;
 //#endregion
-export { W as createNoOverride, U as createOverride, G as readExisting, K as readWriteExisting, q as readWriteExistingOrCreate };
+export { Y as createNoOverride, J as createOverride, X as readExisting, Z as readWriteExisting, Q as readWriteExistingOrCreate };
