@@ -69,7 +69,7 @@ describe("IndexedDB persistent block cache", function () {
     it("cold reads are correct across block boundaries and warm reads hit no network", async () => {
         const content = makeContent(7);
         const counter = { count: 0, bytes: 0 };
-        vi.stubGlobal("fetch", serveRanges(content, '"v1"', counter));
+        vi.stubGlobal("fetch", serveRanges(content, "\"v1\"", counter));
 
         const dbName = "fastfile-test-warm";
         await clearDb(dbName);
@@ -107,7 +107,7 @@ describe("IndexedDB persistent block cache", function () {
 
         const v1 = makeContent(1);
         const c1 = { count: 0, bytes: 0 };
-        vi.stubGlobal("fetch", serveRanges(v1, '"v1"', c1));
+        vi.stubGlobal("fetch", serveRanges(v1, "\"v1\"", c1));
         const fd1 = await openCached(URL1, { blockSize: BLOCK, dbName });
         await fd1.read(64, 0);
         await fd1.close();
@@ -115,7 +115,7 @@ describe("IndexedDB persistent block cache", function () {
         // same URL, new content + new ETag
         const v2 = makeContent(2);
         const c2 = { count: 0, bytes: 0 };
-        vi.stubGlobal("fetch", serveRanges(v2, '"v2"', c2));
+        vi.stubGlobal("fetch", serveRanges(v2, "\"v2\"", c2));
         const fd2 = await openCached(URL1, { blockSize: BLOCK, dbName });
         const got = await fd2.read(64, 0);
         await fd2.close();
@@ -130,21 +130,21 @@ describe("IndexedDB persistent block cache", function () {
 
         const contentA = makeContent(10);
         const cA = { count: 0, bytes: 0 };
-        vi.stubGlobal("fetch", serveRanges(contentA, '"a1"', cA));
+        vi.stubGlobal("fetch", serveRanges(contentA, "\"a1\"", cA));
         const fa = await fastFile.readExisting({ type: "http", url: "https://cache.example/a.zkey", persistentCache: opts });
         await fa.read(3 * BLOCK, 0); // caches 3 MiB for A
         await fa.close();
 
         const contentB = makeContent(20);
         const cB = { count: 0, bytes: 0 };
-        vi.stubGlobal("fetch", serveRanges(contentB, '"b1"', cB));
+        vi.stubGlobal("fetch", serveRanges(contentB, "\"b1\"", cB));
         const fb = await fastFile.readExisting({ type: "http", url: "https://cache.example/b.zkey", persistentCache: opts });
         await fb.read(3 * BLOCK, 0); // A(3) + B(3) > maxBytes at next open
         await fb.close();
 
         // reopening B evicts A (older lastUsed) and keeps B warm
         const cB2 = { count: 0, bytes: 0 };
-        vi.stubGlobal("fetch", serveRanges(contentB, '"b1"', cB2));
+        vi.stubGlobal("fetch", serveRanges(contentB, "\"b1\"", cB2));
         const fb2 = await fastFile.readExisting({ type: "http", url: "https://cache.example/b.zkey", persistentCache: opts });
         await fb2.read(3 * BLOCK, 0);
         await fb2.close();
@@ -152,7 +152,7 @@ describe("IndexedDB persistent block cache", function () {
 
         // A must refetch its data
         const cA2 = { count: 0, bytes: 0 };
-        vi.stubGlobal("fetch", serveRanges(contentA, '"a1"', cA2));
+        vi.stubGlobal("fetch", serveRanges(contentA, "\"a1\"", cA2));
         const fa2 = await fastFile.readExisting({ type: "http", url: "https://cache.example/a.zkey", persistentCache: opts });
         const back = await fa2.read(64, 0);
         await fa2.close();
