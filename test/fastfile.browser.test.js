@@ -41,6 +41,19 @@ describe("fastfile browser — mem", function () {
         await fd.close();
     });
 
+    it("readExisting from a Blob streams through the blob backend", async () => {
+        const bytes = new Uint8Array(64 * 1024);
+        for (let i = 0; i < bytes.length; i++) bytes[i] = i & 0xff;
+        const fd = await fastFile.readExisting(new Blob([bytes]));
+        expect(fd.totalSize).toBe(bytes.length);
+        // small read (page-cached) and large read (direct slice) both match
+        const head = await fd.read(16, 0);
+        expect([...head]).toEqual([...bytes.subarray(0, 16)]);
+        const tail = await fd.read(32 * 1024, 32 * 1024);
+        expect([...tail]).toEqual([...bytes.subarray(32 * 1024)]);
+        await fd.close();
+    });
+
     it("readExisting from URL fetches data", async () => {
         const mockData = new Uint8Array([1, 2, 3]);
         // A server that ignores Range and sends the whole body (the http
