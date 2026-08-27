@@ -77,6 +77,21 @@ function startServer(state, opts) {
 
 describe("fastfile testing suite for httpfile", function () {
 
+    it("persistentCache is a no-op where IndexedDB does not exist (Node)", async () => {
+        const data = makeData(1 << 18);
+        const srv = await startServer({ data: data, etag: "\"v1\"" });
+        try {
+            const fd = await fastFile.readExisting({
+                type: "http", url: srv.url, persistentCache: true,
+            });
+            const got = await fd.read(64, 12345);
+            assert.deepStrictEqual(Buffer.from(got), Buffer.from(data.slice(12345, 12345 + 64)));
+            await fd.close();
+        } finally {
+            await srv.close();
+        }
+    });
+
     it("should read ranges without ever downloading the full file", async () => {
         const data = makeData(1 << 20);   // 1 MiB
         const srv = await startServer({ data: data, etag: "\"v1\"" });

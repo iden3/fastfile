@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => {
                     test: {
                         name: "node-esm",
                         include: ["test/**/*.test.js"],
-                        exclude: ["test/fastfile.browser.test.js"],
+                        exclude: ["test/fastfile.browser.test.js", "test/idbcache.browser.test.js"],
                         environment: "node",
                         globals: true,
                         testTimeout: 100_000,
@@ -72,7 +72,7 @@ export default defineConfig(({ mode }) => {
                     // Browser — ESM source inside real Chromium via Playwright
                     test: {
                         name: "browser-esm",
-                        include: ["test/fastfile.browser.test.js"],
+                        include: ["test/fastfile.browser.test.js", "test/idbcache.browser.test.js"],
                         globals: true,
                         testTimeout: 100_000,
                         hookTimeout: 100_000,

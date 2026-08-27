@@ -19,6 +19,7 @@
 
 import { RangeFile } from "./rangefile.js";
 import * as memFile from "./memfile.js";
+import { wrapWithPersistentCache } from "./idbcache.js";
 
 // Callers tune cacheSize/pageSize for the disk backend (snarkjs passes 8 MiB
 // pages); over HTTP a page that large turns a 4-byte header read into a
@@ -48,7 +49,7 @@ export async function readExisting(o) {
             // validator still matches, the file is unchanged -- buffer that
             // full body once and serve every subsequent read from it.
             let fullBody = null;
-            const readRangeInto = async function (dst, dstOffset, pos, len) {
+            let readRangeInto = async function (dst, dstOffset, pos, len) {
                 if (!fullBody) {
                     try {
                         return await httpReadRangeInto(url, validator, dst, dstOffset, pos, len);
@@ -64,6 +65,18 @@ export async function readExisting(o) {
                 dst.set(data.subarray(pos, pos + len), dstOffset);
             };
             const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
+            if (o.persistentCache) {
+                // Opt-in warm start: persist fetched blocks in IndexedDB so
+                // a later session against the same URL reads locally. Keyed
+                // on the strong validator -- without one the wrapper
+                // declines and this stays a plain streaming reader.
+                readRangeInto = await wrapWithPersistentCache(readRangeInto, {
+                    fileKey: url,
+                    validator: validator,
+                    totalSize: totalSize,
+                    options: o.persistentCache,
+                });
+            }
             return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);
         }
         // 206 but total size unknown (Content-Range: bytes 0-0/*): we cannot

@@ -271,18 +271,135 @@ function b(e) {
 	return new TextDecoder().decode(n);
 }
 //#endregion
+//#region src/idbcache.js
+var x = 1 << 21, S = 1 << 29, C = "fastfile-http-cache", w = /* @__PURE__ */ new Map();
+function T(e) {
+	if (w.has(e)) return w.get(e);
+	let t = new Promise((t, n) => {
+		let r = indexedDB.open(e, 1);
+		r.onupgradeneeded = () => {
+			let e = r.result;
+			e.createObjectStore("files"), e.createObjectStore("blocks");
+		}, r.onsuccess = () => t(r.result), r.onerror = () => n(r.error), r.onblocked = () => n(/* @__PURE__ */ Error("IndexedDB open blocked"));
+	});
+	return w.set(e, t), t.catch(() => w.delete(e)), t;
+}
+function E(e) {
+	return new Promise((t, n) => {
+		e.onsuccess = () => t(e.result), e.onerror = () => n(e.error);
+	});
+}
+function D(e) {
+	return new Promise((t, n) => {
+		e.oncomplete = () => t(), e.onerror = () => n(e.error), e.onabort = () => n(e.error || /* @__PURE__ */ Error("IndexedDB transaction aborted"));
+	});
+}
+function O(e, t, n) {
+	return IDBKeyRange.bound([e, t], [e, n]);
+}
+async function k(e, t) {
+	let n = e.transaction(["files", "blocks"], "readwrite");
+	n.objectStore("files").delete(t), n.objectStore("blocks").delete(O(t, 0, Infinity)), await D(n);
+}
+async function A(e, t, n, r, i, a) {
+	let o = e.transaction(["files", "blocks"], "readwrite"), s = o.objectStore("files"), c = await E(s.get(t)), l = 0;
+	c && c.validator === n && c.totalSize === r && c.blockSize === i ? l = c.bytes : c && o.objectStore("blocks").delete(O(t, 0, Infinity)), s.put({
+		validator: n,
+		totalSize: r,
+		blockSize: i,
+		bytes: l,
+		lastUsed: Date.now()
+	}, t), await D(o);
+	let u = e.transaction("files", "readonly"), d = u.objectStore("files"), [f, p] = await Promise.all([E(d.getAllKeys()), E(d.getAll())]);
+	await D(u);
+	let m = p.reduce((e, t) => e + t.bytes, 0);
+	if (m <= a) return;
+	let h = f.map((e, t) => ({
+		key: e,
+		meta: p[t]
+	})).filter((e) => e.key !== t).sort((e, t) => e.meta.lastUsed - t.meta.lastUsed);
+	for (let t of h) {
+		if (m <= a) break;
+		await k(e, t.key), m -= t.meta.bytes;
+	}
+}
+async function j(e, t) {
+	let { fileKey: n, validator: r, totalSize: i } = t, a = typeof t.options == "object" && t.options || {}, o = a.blockSize || x, s = a.maxBytes || S, c = a.dbName || C;
+	if (typeof indexedDB > "u" || !r) return e;
+	let l;
+	try {
+		l = await T(c), await A(l, n, r, i, o, s);
+	} catch {
+		return e;
+	}
+	let u = !1;
+	async function d(e, t) {
+		let r = l.transaction("blocks", "readonly"), i = r.objectStore("blocks"), a = O(n, e, t), [o, s] = await Promise.all([E(i.getAllKeys(a)), E(i.getAll(a))]);
+		await D(r);
+		let c = /* @__PURE__ */ new Map();
+		for (let e = 0; e < o.length; e++) c.set(o[e][1], s[e]);
+		return c;
+	}
+	async function f(e) {
+		if (!(u || e.length === 0)) try {
+			let t = l.transaction(["files", "blocks"], "readwrite"), r = t.objectStore("blocks"), i = t.objectStore("files");
+			for (let t of e) r.put(t.data, [n, t.index]);
+			let a = await E(i.get(n));
+			a && (a.bytes += e.reduce((e, t) => e + t.data.byteLength, 0), a.lastUsed = Date.now(), i.put(a, n)), await D(t);
+		} catch {
+			u = !0;
+		}
+	}
+	let p = (e) => Math.min(o, i - e * o);
+	return async function(t, n, r, i) {
+		if (i === 0) return;
+		let a = Math.floor(r / o), s = Math.floor((r + i - 1) / o), c = await d(a, s), l = [], u = a;
+		for (; u <= s;) {
+			let a = u * o, d = a + p(u), f = c.get(u);
+			if (f) {
+				let e = Math.max(r, a), o = Math.min(r + i, d);
+				t.set(f.subarray(e - a, o - a), n + (e - r)), u++;
+				continue;
+			}
+			if (a >= r && d <= r + i) {
+				let d = u;
+				for (; d + 1 <= s && !c.get(d + 1) && (d + 1) * o + p(d + 1) <= r + i;) d++;
+				let f = a, m = d * o + p(d);
+				await e(t, n + (f - r), f, m - f);
+				for (let e = u; e <= d; e++) {
+					let i = e * o;
+					l.push({
+						index: e,
+						data: t.slice(n + (i - r), n + (i - r) + p(e))
+					});
+				}
+				u = d + 1;
+			} else {
+				let o = new Uint8Array(p(u));
+				await e(o, 0, a, o.length);
+				let s = Math.max(r, a), c = Math.min(r + i, d);
+				t.set(o.subarray(s - a, c - a), n + (s - r)), l.push({
+					index: u,
+					data: o
+				}), u++;
+			}
+		}
+		await f(l);
+	};
+}
+//#endregion
 //#region src/httpfile.js
-var x = 65536;
-async function S(e) {
+var M = 65536;
+async function N(e) {
 	let n = e.url, r = await fetch(n, { headers: { Range: "bytes=0-0" } });
 	if (r.status === 206) {
 		let t = r.headers.get("content-range"), i = t ? /\/(\d+)\s*$/.exec(t) : null;
 		if (i) {
 			let t = parseInt(i[1]);
 			await r.arrayBuffer();
-			let a = w(r), o = null, s = async function(e, t, r, i) {
+			let a = F(r), o = null, s = async function(e, t, r, i) {
 				if (!o) try {
-					return await T(n, a, e, t, r, i);
+					return await I(n, a, e, t, r, i);
 				} catch (e) {
 					if (!e || !e.degradeToFull) throw e;
 					o = e.fullBodyPromise;
@@ -290,10 +407,15 @@ async function S(e) {
 				let s = await o;
 				if (r + i > s.byteLength) throw Error(n + ": read past the end of the buffered body");
 				e.set(s.subarray(r, r + i), t);
-			}, c = Math.min(e.pageSize || x, x);
-			return new y(s, t, e.cacheSize, c);
+			}, c = Math.min(e.pageSize || M, M);
+			return e.persistentCache && (s = await j(s, {
+				fileKey: n,
+				validator: a,
+				totalSize: t,
+				options: e.persistentCache
+			})), new y(s, t, e.cacheSize, c);
 		}
-		return await r.arrayBuffer(), await C(n);
+		return await r.arrayBuffer(), await P(n);
 	}
 	if (!r.ok && r.status !== 416) throw Error("HTTP " + r.status + " fetching " + n);
 	if (r.status === 416) {
@@ -301,14 +423,14 @@ async function S(e) {
 		return e && /\/0\s*$/.test(e) ? t({
 			type: "mem",
 			data: /* @__PURE__ */ new Uint8Array()
-		}) : await C(n);
+		}) : await P(n);
 	}
 	return t({
 		type: "mem",
 		data: new Uint8Array(await r.arrayBuffer())
 	});
 }
-async function C(e) {
+async function P(e) {
 	let n = await fetch(e);
 	if (!n.ok) throw Error("HTTP " + n.status + " fetching " + e);
 	return t({
@@ -316,25 +438,25 @@ async function C(e) {
 		data: new Uint8Array(await n.arrayBuffer())
 	});
 }
-function w(e) {
+function F(e) {
 	let t = e.headers.get("etag");
 	return t && t.indexOf("W/") !== 0 ? t : e.headers.get("last-modified") || null;
 }
-async function T(e, t, n, r, i, a) {
+async function I(e, t, n, r, i, a) {
 	let o = { Range: "bytes=" + i + "-" + (i + a - 1) };
 	t && (o["If-Range"] = t);
 	let s = await fetch(e, { headers: o });
 	if (s.status === 200) {
-		let n = w(s);
+		let n = F(s);
 		if (!t || n && n === t) {
 			let t = /* @__PURE__ */ Error(e + ": origin ignored Range; degrading to full buffering");
 			throw t.degradeToFull = !0, t.fullBodyPromise = s.arrayBuffer().then((e) => new Uint8Array(e)), t;
 		}
-		throw await E(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
+		throw await L(s), Error(e + ": file changed (or server stopped honoring Range) while reading");
 	}
-	if (s.status !== 206) throw await E(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
+	if (s.status !== 206) throw await L(s), Error("HTTP " + s.status + " reading range " + i + "+" + a + " of " + e);
 	let c = s.headers.get("content-range"), l = c ? /bytes\s+(\d+)-(\d+)\//.exec(c) : null;
-	if (l && parseInt(l[1]) !== i) throw await E(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
+	if (l && parseInt(l[1]) !== i) throw await L(s), Error(e + ": server returned range starting at " + l[1] + ", requested " + i);
 	let u = 0;
 	if (s.body && typeof s.body.getReader == "function") {
 		let t = s.body.getReader();
@@ -352,43 +474,43 @@ async function T(e, t, n, r, i, a) {
 	}
 	if (u !== a) throw Error(e + ": short range response (" + u + "/" + a + " bytes at " + i + ")");
 }
-async function E(e) {
+async function L(e) {
 	try {
 		e.body && typeof e.body.cancel == "function" ? await e.body.cancel() : await e.arrayBuffer();
 	} catch {}
 }
 //#endregion
 //#region src/blobfile.js
-var D = 1 << 20;
-function O(e) {
+var R = 1 << 20;
+function z(e) {
 	let t = e.blob, n = async function(e, n, r, i) {
 		let a = await t.slice(r, r + i).arrayBuffer();
 		if (a.byteLength !== i) throw Error("short blob read (" + a.byteLength + "/" + i + " bytes at " + r + ")");
 		e.set(new Uint8Array(a), n);
-	}, r = Math.min(e.pageSize || D, D);
+	}, r = Math.min(e.pageSize || R, R);
 	return new y(n, t.size, e.cacheSize, r);
 }
 //#endregion
 //#region src/fastfile.browser.js
-function k() {
+function B() {
 	throw Error("File I/O is not supported in the browser");
 }
-function A(e) {
+function V(e) {
 	return e instanceof Uint8Array ? {
 		type: "mem",
 		data: e
-	} : (typeof e == "string" && k(), e);
+	} : (typeof e == "string" && B(), e);
 }
-function j(e, t, n) {
-	if (e.type === "file" && k(), e.type === "mem") return t(e);
+function H(e, t, n) {
+	if (e.type === "file" && B(), e.type === "mem") return t(e);
 	if (e.type === "bigMem") return n(e);
 	throw Error("Invalid FastFile type: " + e.type);
 }
-function M(t) {
-	return j(A(t), e, l);
+function U(t) {
+	return H(V(t), e, l);
 }
-var N = M;
-async function P(e, n, r) {
+var W = U;
+async function G(e, n, r) {
 	return e instanceof Uint8Array && (e = {
 		type: "mem",
 		data: e
@@ -402,11 +524,11 @@ async function P(e, n, r) {
 		url: e,
 		cacheSize: n,
 		pageSize: r
-	}), e.type === "http" ? await S(e) : e.type === "blob" ? O(e) : j(e, t, u);
+	}), e.type === "http" ? await N(e) : e.type === "blob" ? z(e) : H(e, t, u);
 }
-function F(e) {
-	return typeof e == "string" && k(), j(e, n, d);
+function K(e) {
+	return typeof e == "string" && B(), H(e, n, d);
 }
-var I = F;
+var q = K;
 //#endregion
-export { N as createNoOverride, M as createOverride, P as readExisting, F as readWriteExisting, I as readWriteExistingOrCreate };
+export { W as createNoOverride, U as createOverride, G as readExisting, K as readWriteExisting, q as readWriteExistingOrCreate };

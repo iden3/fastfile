@@ -125,6 +125,26 @@ const g = await fastFile.readExisting({
 });
 ```
 
+#### Persistent warm start (browsers, experimental)
+
+```javascript
+// Opt-in: fetched blocks persist in IndexedDB, so a later session against
+// the same URL serves its reads locally instead of re-downloading.
+const f = await fastFile.readExisting({
+    type: "http",
+    url: "https://example.com/circuit_final.zkey",
+    persistentCache: true,                     // or tune it:
+    // persistentCache: { blockSize: 1 << 21, maxBytes: 1 << 29, dbName: "fastfile-http-cache" },
+});
+```
+
+Entries are keyed by URL plus the server's strong validator (ETag /
+Last-Modified) and are dropped when the remote file changes; without a
+strong validator nothing is cached. Total storage is bounded (`maxBytes`,
+default 512 MiB) with least-recently-opened files evicted first. Where
+IndexedDB is unavailable (Node, private windows, blocked storage) the option
+is a silent no-op and reads stream as usual.
+
 ### Blob / File (browser)
 
 ```javascript
