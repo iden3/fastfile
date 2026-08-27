@@ -172,6 +172,20 @@ export async function wrapWithPersistentCache(readRangeInto, o) {
     const blockLen = (index) =>
         Math.min(blockSize, totalSize - index * blockSize);
 
+    // In-flight dedupe: provers issue concurrent, overlapping reads (MSM
+    // read-ahead, coefficient streaming), and without this every concurrent
+    // miss of the same block refetched it -- measured 3.3x the zkey size on
+    // the wire for a cold authV3 proof. A missing block gets one fetch; every
+    // other reader awaits its promise.
+    const inFlight = new Map(); // blockIndex -> Promise<Uint8Array>
+    function deferBlock(index) {
+        let resolve, reject;
+        const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+        promise.catch(() => {}); // waiters handle it; avoid unhandled-rejection noise
+        inFlight.set(index, promise);
+        return { resolve, reject, promise };
+    }
+
     return async function cachedReadRangeInto(dst, dstOffset, pos, len) {
         if (len === 0) return;
         const firstBlock = Math.floor(pos / blockSize);
@@ -179,48 +193,76 @@ export async function wrapWithPersistentCache(readRangeInto, o) {
         const found = await loadCached(firstBlock, lastBlock);
 
         const toPersist = [];
-        // Walk the block range, serving hits and grouping misses into runs
-        // of blocks that lie fully inside the request (fetched directly
-        // into dst, no extra copy) -- boundary blocks that stick out past
-        // the request are fetched whole into a one-block temp so the cache
-        // always stores complete blocks.
+        const copyInto = (block, i) => {
+            const bStart = i * blockSize;
+            const from = Math.max(pos, bStart);
+            const to = Math.min(pos + len, bStart + blockLen(i));
+            dst.set(block.subarray(from - bStart, to - bStart), dstOffset + (from - pos));
+        };
+        // Walk the block range, serving hits (cached or in-flight) and
+        // grouping misses into runs of blocks that lie fully inside the
+        // request (fetched directly into dst, no extra copy) -- boundary
+        // blocks that stick out past the request are fetched whole into a
+        // one-block temp so the cache always stores complete blocks.
         let i = firstBlock;
         while (i <= lastBlock) {
             const bStart = i * blockSize;
             const bEnd = bStart + blockLen(i);
             const hit = found.get(i);
             if (hit) {
-                const from = Math.max(pos, bStart);
-                const to = Math.min(pos + len, bEnd);
-                dst.set(hit.subarray(from - bStart, to - bStart), dstOffset + (from - pos));
+                copyInto(hit, i);
+                i++;
+                continue;
+            }
+            const pending = inFlight.get(i);
+            if (pending) {
+                copyInto(await pending, i);
                 i++;
                 continue;
             }
             if (bStart >= pos && bEnd <= pos + len) {
                 // interior run: extend over consecutive interior misses
                 let j = i;
-                while (j + 1 <= lastBlock && !found.get(j + 1) &&
+                while (j + 1 <= lastBlock && !found.get(j + 1) && !inFlight.get(j + 1) &&
                        (j + 1) * blockSize + blockLen(j + 1) <= pos + len) j++;
                 const runStart = bStart;
                 const runEnd = j * blockSize + blockLen(j);
-                await readRangeInto(dst, dstOffset + (runStart - pos), runStart, runEnd - runStart);
+                const defers = [];
+                for (let b = i; b <= j; b++) defers.push(deferBlock(b));
+                try {
+                    await readRangeInto(dst, dstOffset + (runStart - pos), runStart, runEnd - runStart);
+                } catch (err) {
+                    for (let b = i; b <= j; b++) { defers[b - i].reject(err); inFlight.delete(b); }
+                    throw err;
+                }
                 for (let b = i; b <= j; b++) {
                     const s = b * blockSize;
-                    toPersist.push({ index: b, data: dst.slice(dstOffset + (s - pos), dstOffset + (s - pos) + blockLen(b)) });
+                    const data = dst.slice(dstOffset + (s - pos), dstOffset + (s - pos) + blockLen(b));
+                    defers[b - i].resolve(data);
+                    toPersist.push({ index: b, data });
                 }
                 i = j + 1;
             } else {
                 // boundary block partially outside the request: fetch it
                 // whole so the stored block is complete
+                const defer = deferBlock(i);
                 const block = new Uint8Array(blockLen(i));
-                await readRangeInto(block, 0, bStart, block.length);
-                const from = Math.max(pos, bStart);
-                const to = Math.min(pos + len, bEnd);
-                dst.set(block.subarray(from - bStart, to - bStart), dstOffset + (from - pos));
+                try {
+                    await readRangeInto(block, 0, bStart, block.length);
+                } catch (err) {
+                    defer.reject(err);
+                    inFlight.delete(i);
+                    throw err;
+                }
+                defer.resolve(block);
+                copyInto(block, i);
                 toPersist.push({ index: i, data: block });
                 i++;
             }
         }
         await persistBlocks(toPersist);
+        // keep resolved blocks discoverable until they are persisted, then
+        // let waiters fall through to IndexedDB
+        for (const e of toPersist) inFlight.delete(e.index);
     };
 }

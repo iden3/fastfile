@@ -160,6 +160,28 @@ describe("IndexedDB persistent block cache", function () {
         expect(cA2.count).toBeGreaterThan(1);
     });
 
+    it("concurrent cold reads of one block fetch it once (in-flight dedupe)", async () => {
+        const dbName = "fastfile-test-dedupe";
+        await clearDb(dbName);
+        const content = makeContent(9);
+        const counter = { count: 0, bytes: 0 };
+        vi.stubGlobal("fetch", serveRanges(content, "\"d1\"", counter));
+
+        const fd = await openCached("https://cache.example/dedupe.zkey", { blockSize: BLOCK, dbName });
+        const afterOpen = counter.count; // the probe
+        // 8 concurrent direct reads inside block 0 (each is a boundary-case
+        // miss); without dedupe each fetched the whole block independently
+        const reads = [];
+        for (let k = 0; k < 8; k++) reads.push(fd.read(128 * 1024, k * 64 * 1024));
+        const got = await Promise.all(reads);
+        for (let k = 0; k < 8; k++) {
+            expect([...got[k].slice(0, 8)]).toEqual([...content.subarray(k * 64 * 1024, k * 64 * 1024 + 8)]);
+        }
+        await fd.close();
+        // block 0 once, plus at most one more block touched by the last read
+        expect(counter.count - afterOpen).toBeLessThanOrEqual(2);
+    });
+
     it("without a strong validator the reader works but nothing persists", async () => {
         const dbName = "fastfile-test-noval";
         await clearDb(dbName);
