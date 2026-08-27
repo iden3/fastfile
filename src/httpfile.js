@@ -13,9 +13,11 @@
 // file changes mid-read the server answers 200 instead of 206 and the read
 // throws, rather than silently mixing chunks of two file versions.
 //
-// Server requirements (CORS deployments): allow the `Range` request header
-// and expose `Content-Range` + `ETag`; serve zkeys without Content-Encoding
-// (ranges address encoded bytes).
+// Server requirements (CORS deployments): allow the `Range`, `If-Range`,
+// `If-None-Match` and `If-Modified-Since` request headers and expose
+// `Content-Range` + `ETag`; serve zkeys without Content-Encoding (ranges
+// address encoded bytes). A missing allow-list entry for the conditional
+// headers only costs the 304 warm-start (the probe retries unconditionally).
 
 import { RangeFile } from "./rangefile.js";
 import * as memFile from "./memfile.js";
@@ -47,7 +49,17 @@ export async function readExisting(o) {
             probeHeaders["If-Modified-Since"] = cacheMeta.validator;
         }
     }
-    const probe = await fetch(url, { headers: probeHeaders });
+    let probe;
+    try {
+        probe = await fetch(url, { headers: probeHeaders });
+    } catch (err) {
+        // Conditional headers are not CORS-safelisted; a cross-origin server
+        // whose preflight does not allow If-None-Match/If-Modified-Since
+        // fails the fetch outright. Never let the cache break an open that
+        // would work without it: retry unconditionally.
+        if (!("If-None-Match" in probeHeaders) && !("If-Modified-Since" in probeHeaders)) throw err;
+        probe = await fetch(url, { headers: { "Range": "bytes=0-0" } });
+    }
 
     if (probe.status === 304) {
         // Unchanged since it was cached. Serve through the cache; missing
