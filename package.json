@@ -3,21 +3,32 @@
   "type": "module",
   "version": "0.0.20",
   "description": "fast cached read write of big binary files",
-  "main": "./build/main.cjs",
+  "main": "./build/node/main.cjs",
   "module": "./src/fastfile.js",
   "exports": {
-    "browser": "./src/fastfile.js",
-    "import": "./src/fastfile.js",
-    "require": "./build/main.cjs"
-  },
-  "browser": {
-    "fs": false,
-    "constants": "./src/constants.browser.js"
+    ".": {
+      "node": {
+        "import": "./src/fastfile.js",
+        "require": "./build/node/main.cjs"
+      },
+      "browser": {
+        "import": "./build/browser/browser.esm.js",
+        "default": "./build/browser/browser.iife.js"
+      },
+      "default": "./src/fastfile.js"
+    }
   },
   "scripts": {
-    "pretest": "eslint .",
-    "test": "mocha",
-    "build": "rollup -c rollup.cjs.config.js"
+    "lint": "eslint .",
+    "pretest": "npm run build && npm run lint",
+    "test": "vitest run",
+    "test:node": "vitest run --project node-esm --project node-cjs",
+    "test:browser": "vitest run --project browser-esm",
+    "test:watch": "vitest",
+    "test:integration": "vitest run test/test.js --testTimeout=1000000000",
+    "build:node": "vite build --mode node",
+    "build:browser": "vite build --mode browser",
+    "build": "npm run build:node && npm run build:browser"
   },
   "keywords": [
     "file",
@@ -34,16 +45,21 @@
     "url": "https://github.com/iden3/fastfile.git"
   },
   "devDependencies": {
-    "chai": "^4.3.6",
-    "chai-as-promised": "^7.1.1",
-    "eslint": "^8.17.0",
-    "ffjavascript": "^0.3.0",
-    "mocha": "^10.0.0",
-    "rollup": "^2.20.0"
+    "@eslint/js": "^10.0.1",
+    "@vitest/browser": "^4.1.11",
+    "@vitest/browser-playwright": "^4.1.11",
+    "eslint": "^10.1.0",
+    "ffjavascript": "git+https://github.com/iden3/ffjavascript.git#f16db3c1719428b9c1867f28f008f20a7b84f572",
+    "globals": "^17.4.0",
+    "playwright": "^1.59.0",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "serialize-javascript": "^7.0.5",
     "diff": "^8.0.3",
-    "minimatch": "^3.1.4"
+    "minimatch": "^3.1.4",
+    "postcss": "^8.5.26",
+    "brace-expansion": "^5.0.9"
   }
 }

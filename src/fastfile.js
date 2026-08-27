@@ -1,6 +1,8 @@
 import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
+import * as httpFile from "./httpfile.js";
+import * as blobFile from "./blobfile.js";
 import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
 
 
@@ -59,20 +61,27 @@ export async function readExisting(o, b, c) {
             data: o
         };
     }
-    if (!isNode) {
-        if (typeof o === "string") {
-            const buff = await fetch(o).then( function(res) {
-                return res.arrayBuffer();
-            }).then(function (ab) {
-                return new Uint8Array(ab);
-            });
+    if (typeof Blob !== "undefined" && o instanceof Blob) {
+        o = {
+            type: "blob",
+            blob: o,
+            cacheSize: b,
+            pageSize: c
+        };
+    }
+    if (typeof o === "string") {
+        // URLs (and, in the browser, any string -- historically fetched
+        // whole) go through the http backend: it streams via Range requests
+        // when the server supports them and falls back to buffering the
+        // full body (the previous behavior) when it does not.
+        if (!isNode || /^https?:\/\//i.test(o)) {
             o = {
-                type: "mem",
-                data: buff
+                type: "http",
+                url: o,
+                cacheSize: b,
+                pageSize: c
             };
-        }
-    } else {
-        if (typeof o === "string") {
+        } else {
             o = {
                 type: "file",
                 fileName: o,
@@ -87,6 +96,10 @@ export async function readExisting(o, b, c) {
         return await memFile.readExisting(o);
     } else if (o.type == "bigMem") {
         return await bigMemFile.readExisting(o);
+    } else if (o.type == "http") {
+        return await httpFile.readExisting(o);
+    } else if (o.type == "blob") {
+        return blobFile.readExisting(o);
     } else {
         throw new Error("Invalid FastFile type: "+o.type);
     }
