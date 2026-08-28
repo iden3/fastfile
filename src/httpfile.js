@@ -201,14 +201,61 @@ async function withRangeFetchSlot(fn) {
     }
 }
 
+// Unstable-connection handling. A range GET is idempotent and If-Range
+// guards consistency, so transient failures (network drops, 5xx/429, and
+// stalls -- a response that stops delivering bytes) are retried with
+// exponential backoff. Errors that retrying cannot fix (4xx, a changed
+// validator) are marked err.permanent at their throw site and rethrown
+// immediately; the degrade-to-full signal passes through untouched.
+// Exported so tests (and unusual deployments) can tune it.
+export const httpRetryConfig = {
+    retries: 3,          // extra attempts after the first
+    backoffMs: 300,      // doubled per retry
+    stallTimeoutMs: 10_000, // abort when no bytes (or headers) arrive for this long
+};
+
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
 async function httpReadRangeInto(url, validator, dst, dstOffset, pos, len) {
-    return withRangeFetchSlot(() => httpReadRangeIntoUnlimited(url, validator, dst, dstOffset, pos, len));
+    return withRangeFetchSlot(async () => {
+        for (let attempt = 0; ; attempt++) {
+            try {
+                return await httpReadRangeIntoOnce(url, validator, dst, dstOffset, pos, len);
+            } catch (err) {
+                if (err && (err.degradeToFull || err.permanent)) throw err;
+                if (attempt >= httpRetryConfig.retries) throw err;
+                await sleep(httpRetryConfig.backoffMs * (1 << attempt));
+            }
+        }
+    });
 }
 
-async function httpReadRangeIntoUnlimited(url, validator, dst, dstOffset, pos, len) {
+async function httpReadRangeIntoOnce(url, validator, dst, dstOffset, pos, len) {
     const headers = { "Range": "bytes=" + pos + "-" + (pos + len - 1) };
     if (validator) headers["If-Range"] = validator;
-    const res = await fetch(url, { headers: headers });
+    // Stall watchdog: abort when neither headers nor body bytes arrive for
+    // stallTimeoutMs. Without it a wedged connection hangs the read forever
+    // (fetch has no timeout of its own); with it, the retry loop above turns
+    // a stall into a bounded delay.
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    let stallTimer = null;
+    const bumpStall = () => {
+        if (!ctrl) return;
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = setTimeout(
+            () => ctrl.abort(new Error(url + ": no data for " + httpRetryConfig.stallTimeoutMs + "ms")),
+            httpRetryConfig.stallTimeoutMs);
+    };
+    const clearStall = () => { if (stallTimer) clearTimeout(stallTimer); stallTimer = null; };
+    bumpStall();
+    let res;
+    try {
+        res = await fetch(url, ctrl ? { headers: headers, signal: ctrl.signal } : { headers: headers });
+    } catch (err) {
+        clearStall();
+        throw err;
+    }
+    bumpStall();
     if (res.status === 200) {
         // A 200 mid-session means the origin does not honor Range (the 206
         // probe answer may have come from a browser cache). If the strong
@@ -217,17 +264,25 @@ async function httpReadRangeIntoUnlimited(url, validator, dst, dstOffset, pos, l
         // buffered mode. Only a changed validator is a hard error.
         const nowValidator = strongValidator(res);
         if (!validator || (nowValidator && nowValidator === validator)) {
+            clearStall();
             const degrade = new Error(url + ": origin ignored Range; degrading to full buffering");
             degrade.degradeToFull = true;
             degrade.fullBodyPromise = res.arrayBuffer().then((b) => new Uint8Array(b));
             throw degrade;
         }
+        clearStall();
         await abandonBody(res);
-        throw new Error(url + ": file changed (or server stopped honoring Range) while reading");
+        const changed = new Error(url + ": file changed (or server stopped honoring Range) while reading");
+        changed.permanent = true; // retrying cannot bring the old bytes back
+        throw changed;
     }
     if (res.status !== 206) {
+        clearStall();
         await abandonBody(res);
-        throw new Error("HTTP " + res.status + " reading range " + pos + "+" + len + " of " + url);
+        const httpErr = new Error("HTTP " + res.status + " reading range " + pos + "+" + len + " of " + url);
+        // 5xx and 429 are transient by definition; other 4xx will not change
+        if (res.status < 500 && res.status !== 429) httpErr.permanent = true;
+        throw httpErr;
     }
     const contentRange = res.headers.get("content-range");
     const m = contentRange ? /bytes\s+(\d+)-(\d+)\//.exec(contentRange) : null;
@@ -240,27 +295,32 @@ async function httpReadRangeIntoUnlimited(url, validator, dst, dstOffset, pos, l
     // BigBuffer -- both expose .set(chunk, offset)); avoids materializing
     // a second full-size copy of large section reads.
     let done = 0;
-    if (res.body && typeof res.body.getReader === "function") {
-        const reader = res.body.getReader();
-        for (;;) {
-            const it = await reader.read();
-            if (it.done) break;
-            if (done + it.value.byteLength > len) {
-                reader.cancel().catch(function () {});
-                throw new Error(url + ": range response longer than requested");
+    try {
+        if (res.body && typeof res.body.getReader === "function") {
+            const reader = res.body.getReader();
+            for (;;) {
+                const it = await reader.read();
+                bumpStall();
+                if (it.done) break;
+                if (done + it.value.byteLength > len) {
+                    reader.cancel().catch(function () {});
+                    throw new Error(url + ": range response longer than requested");
+                }
+                dst.set(it.value, dstOffset + done);
+                done += it.value.byteLength;
             }
-            dst.set(it.value, dstOffset + done);
-            done += it.value.byteLength;
-        }
-    } else {
+        } else {
         // coverage: fetch implementations without a streaming body (older
         // browser polyfills); Node's undici always streams
         /* c8 ignore start */
-        const buff = new Uint8Array(await res.arrayBuffer());
-        if (buff.byteLength > len) throw new Error(url + ": range response longer than requested");
-        dst.set(buff, dstOffset);
-        done = buff.byteLength;
+            const buff = new Uint8Array(await res.arrayBuffer());
+            if (buff.byteLength > len) throw new Error(url + ": range response longer than requested");
+            dst.set(buff, dstOffset);
+            done = buff.byteLength;
         /* c8 ignore stop */
+        }
+    } finally {
+        clearStall();
     }
     if (done !== len) {
         throw new Error(url + ": short range response (" + done + "/" + len + " bytes at " + pos + ")");

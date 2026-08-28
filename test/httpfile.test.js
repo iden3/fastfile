@@ -77,6 +77,112 @@ function startServer(state, opts) {
 
 describe("fastfile testing suite for httpfile", function () {
 
+    describe("unstable connections (retry + stall timeout)", () => {
+        let saved;
+        beforeEach(async () => {
+            const { httpRetryConfig } = await import("../src/httpfile.js");
+            saved = { ...httpRetryConfig };
+            httpRetryConfig.backoffMs = 10;
+            httpRetryConfig.stallTimeoutMs = 250;
+        });
+        afterEach(async () => {
+            const { httpRetryConfig } = await import("../src/httpfile.js");
+            Object.assign(httpRetryConfig, saved);
+        });
+
+        // Minimal faulty range server: `plan` decides per zkey request.
+        function faultyServer(data, plan) {
+            let n = 0;
+            const server = http.createServer((req, res) => {
+                const m = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range || "");
+                const start = m ? parseInt(m[1]) : 0;
+                const end = m ? Math.min(parseInt(m[2]), data.length - 1) : data.length - 1;
+                const isProbe = start === 0 && end === 0;
+                const action = isProbe ? "ok" : plan(++n);
+                if (action === "503") { res.writeHead(503); res.end(); return; }
+                res.writeHead(action === "404" ? 404 : 206, {
+                    "Content-Range": `bytes ${start}-${end}/${data.length}`,
+                    "Content-Length": end - start + 1,
+                    "ETag": "\"u1\"", "Accept-Ranges": "bytes",
+                });
+                if (action === "404") { res.end(); return; }
+                const body = Buffer.from(data.slice(start, end + 1));
+                if (action === "drop") {
+                    res.write(body.subarray(0, Math.floor(body.length / 2)));
+                    setTimeout(() => res.destroy(), 10);
+                    return;
+                }
+                if (action === "stall") {
+                    res.write(body.subarray(0, 16)); // then silence, socket open
+                    return;
+                }
+                res.end(body);
+            });
+            return new Promise((r) => server.listen(0, "127.0.0.1", () => r({
+                url: `http://127.0.0.1:${server.address().port}/f.bin`,
+                attempts: () => n,
+                close: () => new Promise((x) => { server.closeAllConnections(); server.close(x); }),
+            })));
+        }
+
+        it("recovers from a mid-body connection drop", async () => {
+            const data = makeData(1 << 18);
+            const srv = await faultyServer(data, (n) => (n === 1 ? "drop" : "ok"));
+            try {
+                const fd = await fastFile.readExisting(srv.url);
+                const got = await fd.read(200000, 1000);
+                assert.deepStrictEqual(Buffer.from(got), Buffer.from(data.slice(1000, 201000)));
+                await fd.close();
+                assert.strictEqual(srv.attempts(), 2);
+            } finally { await srv.close(); }
+        });
+
+        it("retries transient 503s but fails fast on 404", async () => {
+            const data = makeData(1 << 17);
+            const srv = await faultyServer(data, (n) => (n <= 2 ? "503" : "ok"));
+            try {
+                const fd = await fastFile.readExisting(srv.url);
+                const got = await fd.read(65536, 0);
+                assert.deepStrictEqual(Buffer.from(got), Buffer.from(data.slice(0, 65536)));
+                await fd.close();
+                assert.strictEqual(srv.attempts(), 3);
+            } finally { await srv.close(); }
+
+            const srv2 = await faultyServer(data, () => "404");
+            try {
+                const fd = await fastFile.readExisting(srv2.url);
+                await expect(fd.read(65536, 0)).rejects.toThrow("HTTP 404");
+                assert.strictEqual(srv2.attempts(), 1); // permanent: no retry
+                await fd.close();
+            } finally { await srv2.close(); }
+        });
+
+        it("aborts a stalled response and recovers on retry", async () => {
+            const data = makeData(1 << 18);
+            const srv = await faultyServer(data, (n) => (n === 1 ? "stall" : "ok"));
+            try {
+                const t0 = Date.now();
+                const fd = await fastFile.readExisting(srv.url);
+                const got = await fd.read(150000, 5000);
+                assert.deepStrictEqual(Buffer.from(got), Buffer.from(data.slice(5000, 155000)));
+                await fd.close();
+                assert.strictEqual(srv.attempts(), 2);
+                assert.ok(Date.now() - t0 < 5000, "stall was not bounded");
+            } finally { await srv.close(); }
+        });
+
+        it("gives up after exhausting retries", async () => {
+            const data = makeData(1 << 17);
+            const srv = await faultyServer(data, () => "503");
+            try {
+                const fd = await fastFile.readExisting(srv.url);
+                await expect(fd.read(65536, 0)).rejects.toThrow("HTTP 503");
+                assert.strictEqual(srv.attempts(), 4); // 1 try + 3 retries
+                await fd.close();
+            } finally { await srv.close(); }
+        });
+    });
+
     it("caps concurrent range fetches below the browser connection limit", async () => {
         const data = makeData(1 << 20);
         let inFlight = 0, maxInFlight = 0;
