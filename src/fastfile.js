@@ -13,6 +13,28 @@ const DEFAULT_PAGE_SIZE = (1 << 13);
 // webpack-ism and is undefined under Vite/esbuild/SES).
 const isNode = typeof process !== "undefined" && process.versions != null && process.versions.node != null;
 
+// The b/c arguments are the caller's cacheSize/pageSize hints. Historically
+// they were only applied while coercing string (and Blob) sources into
+// descriptor objects, so a caller passing {type: "file"|"http"} without
+// explicit sizes silently fell back to the small built-in defaults even when
+// it supplied tuned hints for the string case. Fill exactly the fields the
+// descriptor leaves undefined; never mutate the caller's object.
+function withSizeFallbacks(o, b, c) {
+    if (typeof o !== "object" || o === null) return o;
+    // Only the page-cache backends consume these sizes. mem/bigMem
+    // descriptors must pass through UNTOUCHED and by identity: the mem
+    // backend stores the written data on the caller's object (o.data), so
+    // handing a copy to createNew would leave the caller's descriptor empty.
+    if (o.type !== "file" && o.type !== "http" && o.type !== "blob") return o;
+    const needCache = o.cacheSize === undefined && b !== undefined;
+    const needPage = o.pageSize === undefined && c !== undefined;
+    if (!needCache && !needPage) return o;
+    const res = Object.assign({}, o);
+    if (needCache) res.cacheSize = b;
+    if (needPage) res.pageSize = c;
+    return res;
+}
+
 
 export async function createOverride(o, b, c) {
     if (typeof o === "string") {
@@ -23,6 +45,7 @@ export async function createOverride(o, b, c) {
             pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return await open(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
@@ -43,6 +66,7 @@ export function createNoOverride(o, b, c) {
             pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return open(o.fileName, O_TRUNC | O_CREAT | O_RDWR | O_EXCL, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
@@ -90,6 +114,7 @@ export async function readExisting(o, b, c) {
             };
         }
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return await open(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
@@ -114,6 +139,7 @@ export function readWriteExisting(o, b, c) {
             pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return open(o.fileName, O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
@@ -134,6 +160,7 @@ export function readWriteExistingOrCreate(o, b, c) {
             pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return open(o.fileName, O_CREAT | O_RDWR | O_EXCL, o.cacheSize);
     } else if (o.type == "mem") {

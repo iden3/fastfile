@@ -52,7 +52,9 @@ All entry points return a promise of a `FastFile` handle:
 
 `o` is a file name/URL string, a `Uint8Array`, a `Blob`, or an options object
 with a `type` tag from the table above. `cacheSize` (default 64 KiB) and
-`pageSize` (default 8 KiB) tune the page cache.
+`pageSize` (default 8 KiB) tune the page cache. They apply to every source
+form: for an options object they fill only the fields the object leaves
+undefined, so explicit fields on the object always win.
 
 The returned handle offers, among others:
 
