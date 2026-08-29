@@ -454,9 +454,9 @@ async function M(e) {
 //#region src/httpfile.js
 var N = 65536;
 async function P(e) {
-	let n = e.url, r = e.persistentCache ? await j({
+	let n = e.url, r = e.cache ? await j({
 		fileKey: n,
-		options: e.persistentCache
+		options: e.cache
 	}) : null, i = { Range: "bytes=0-0" };
 	r && r.validator && (r.validator[0] === "\"" || r.validator.indexOf("W/") === 0 ? i["If-None-Match"] = r.validator : i["If-Modified-Since"] = r.validator);
 	let a;
@@ -484,13 +484,13 @@ async function P(e) {
 		}) : await I(n);
 	}
 	let o = new Uint8Array(await a.arrayBuffer());
-	if (e.persistentCache) {
+	if (e.cache) {
 		let t = L(a);
 		t && await M({
 			fileKey: n,
 			validator: t,
 			totalSize: o.length,
-			options: e.persistentCache,
+			options: e.cache,
 			data: o
 		});
 	}
@@ -511,11 +511,11 @@ async function F(e, t, n, r) {
 		if (a + o > s.byteLength) throw Error(e + ": read past the end of the buffered body");
 		n.set(s.subarray(a, a + o), r);
 	}, o = Math.min(r.pageSize || N, N);
-	return r.persistentCache && (a = await A(a, {
+	return r.cache && (a = await A(a, {
 		fileKey: e,
 		validator: t,
 		totalSize: n,
-		options: r.persistentCache
+		options: r.cache
 	})), new y(a, n, r.cacheSize, o);
 }
 async function I(e) {

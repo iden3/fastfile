@@ -135,8 +135,8 @@ const g = await fastFile.readExisting({
 const f = await fastFile.readExisting({
     type: "http",
     url: "https://example.com/circuit_final.zkey",
-    persistentCache: true,                     // or tune it:
-    // persistentCache: { blockSize: 1 << 21, maxBytes: 1 << 29, dbName: "fastfile-http-cache" },
+    cache: true,                               // or tune it:
+    // cache: { blockSize: 1 << 21, maxBytes: 1 << 29, dbName: "fastfile-http-cache" },
 });
 ```
 

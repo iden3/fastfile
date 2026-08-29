@@ -38,8 +38,8 @@ export async function readExisting(o) {
     // blocks for this URL, an unchanged file answers 304 with no body --
     // which is what makes warm starts work even against servers that ignore
     // Range and would otherwise ship the entire file in the probe response.
-    const cacheMeta = o.persistentCache
-        ? await peekPersistentMeta({ fileKey: url, options: o.persistentCache })
+    const cacheMeta = o.cache
+        ? await peekPersistentMeta({ fileKey: url, options: o.cache })
         : null;
     const probeHeaders = { "Range": "bytes=0-0" };
     if (cacheMeta && cacheMeta.validator) {
@@ -100,7 +100,7 @@ export async function readExisting(o) {
 
     // 200: the server ignored Range and sent the whole file; reuse this body.
     const data = new Uint8Array(await probe.arrayBuffer());
-    if (o.persistentCache) {
+    if (o.cache) {
         // Persist the body so the next session's conditional probe gets a
         // bodyless 304 and reads locally. Best-effort, validator-keyed.
         const validator = strongValidator(probe);
@@ -109,7 +109,7 @@ export async function readExisting(o) {
                 fileKey: url,
                 validator: validator,
                 totalSize: data.length,
-                options: o.persistentCache,
+                options: o.cache,
                 data: data,
             });
         }
@@ -144,7 +144,7 @@ async function buildStreamingFile(url, validator, totalSize, o) {
         dst.set(data.subarray(pos, pos + len), dstOffset);
     };
     const pageSize = Math.min(o.pageSize || MAX_HTTP_PAGE_SIZE, MAX_HTTP_PAGE_SIZE);
-    if (o.persistentCache) {
+    if (o.cache) {
         // Opt-in warm start: persist fetched blocks in IndexedDB so a later
         // session against the same URL reads locally. Keyed on the strong
         // validator -- without one the wrapper declines and this stays a
@@ -153,7 +153,7 @@ async function buildStreamingFile(url, validator, totalSize, o) {
             fileKey: url,
             validator: validator,
             totalSize: totalSize,
-            options: o.persistentCache,
+            options: o.cache,
         });
     }
     return new RangeFile(readRangeInto, totalSize, o.cacheSize, pageSize);

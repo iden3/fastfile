@@ -218,12 +218,12 @@ describe("fastfile testing suite for httpfile", function () {
         }
     });
 
-    it("persistentCache is a no-op where IndexedDB does not exist (Node)", async () => {
+    it("http cache option is a no-op where IndexedDB does not exist (Node)", async () => {
         const data = makeData(1 << 18);
         const srv = await startServer({ data: data, etag: "\"v1\"" });
         try {
             const fd = await fastFile.readExisting({
-                type: "http", url: srv.url, persistentCache: true,
+                type: "http", url: srv.url, cache: true,
             });
             const got = await fd.read(64, 12345);
             assert.deepStrictEqual(Buffer.from(got), Buffer.from(data.slice(12345, 12345 + 64)));

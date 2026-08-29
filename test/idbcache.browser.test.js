@@ -2,7 +2,7 @@ import * as fastFile from "../src/fastfile.browser.js";
 import { expect, vi } from "vitest";
 
 // In-Chromium tests for the IndexedDB-backed persistent block cache
-// (persistentCache option of the http backend). fetch is stubbed with a
+// (cache option of the http backend). fetch is stubbed with a
 // deterministic Range-honoring server that counts requests, so warm starts
 // are provable as "zero network requests".
 
@@ -42,7 +42,7 @@ async function openCached(url, cacheOpts) {
     return fastFile.readExisting({
         type: "http",
         url,
-        persistentCache: cacheOpts || { blockSize: BLOCK, dbName: "fastfile-test-cache" },
+        cache: cacheOpts || { blockSize: BLOCK, dbName: "fastfile-test-cache" },
     });
 }
 
@@ -131,21 +131,21 @@ describe("IndexedDB persistent block cache", function () {
         const contentA = makeContent(10);
         const cA = { count: 0, bytes: 0 };
         vi.stubGlobal("fetch", serveRanges(contentA, "\"a1\"", cA));
-        const fa = await fastFile.readExisting({ type: "http", url: "https://cache.example/a.zkey", persistentCache: opts });
+        const fa = await fastFile.readExisting({ type: "http", url: "https://cache.example/a.zkey", cache: opts });
         await fa.read(3 * BLOCK, 0); // caches 3 MiB for A
         await fa.close();
 
         const contentB = makeContent(20);
         const cB = { count: 0, bytes: 0 };
         vi.stubGlobal("fetch", serveRanges(contentB, "\"b1\"", cB));
-        const fb = await fastFile.readExisting({ type: "http", url: "https://cache.example/b.zkey", persistentCache: opts });
+        const fb = await fastFile.readExisting({ type: "http", url: "https://cache.example/b.zkey", cache: opts });
         await fb.read(3 * BLOCK, 0); // A(3) + B(3) > maxBytes at next open
         await fb.close();
 
         // reopening B evicts A (older lastUsed) and keeps B warm
         const cB2 = { count: 0, bytes: 0 };
         vi.stubGlobal("fetch", serveRanges(contentB, "\"b1\"", cB2));
-        const fb2 = await fastFile.readExisting({ type: "http", url: "https://cache.example/b.zkey", persistentCache: opts });
+        const fb2 = await fastFile.readExisting({ type: "http", url: "https://cache.example/b.zkey", cache: opts });
         await fb2.read(3 * BLOCK, 0);
         await fb2.close();
         expect(cB2.count).toBe(1); // probe only: B stayed cached
@@ -153,7 +153,7 @@ describe("IndexedDB persistent block cache", function () {
         // A must refetch its data
         const cA2 = { count: 0, bytes: 0 };
         vi.stubGlobal("fetch", serveRanges(contentA, "\"a1\"", cA2));
-        const fa2 = await fastFile.readExisting({ type: "http", url: "https://cache.example/a.zkey", persistentCache: opts });
+        const fa2 = await fastFile.readExisting({ type: "http", url: "https://cache.example/a.zkey", cache: opts });
         const back = await fa2.read(64, 0);
         await fa2.close();
         expect([...back]).toEqual([...contentA.subarray(0, 64)]);
