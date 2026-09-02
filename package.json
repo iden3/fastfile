@@ -48,7 +48,7 @@
     "@vitest/browser": "^4.1.11",
     "@vitest/browser-playwright": "^4.1.11",
     "eslint": "^10.1.0",
-    "ffjavascript": "git+https://github.com/iden3/ffjavascript.git#ca4e33839dda3fedc8b909da43f745b1912c1aed",
+    "ffjavascript": "git+https://github.com/iden3/ffjavascript.git#27a93c3f382845b573b66f9eb52cd3f6ff41dffb",
     "globals": "^17.4.0",
     "playwright": "^1.59.0",
     "vite": "^8.0.3",
