@@ -26,6 +26,12 @@ class FastFile {
         this.totalSize = stats.size;
         this.totalPages = Math.floor((stats.size -1) / this.pageSize)+1;
         this.maxPagesLoaded = Math.floor( cacheSize / this.pageSize)+1;
+        // Reads/writes at least this large bypass the page cache and move bytes
+        // straight between disk and the caller's buffer (see readToBuffer /
+        // write), avoiding the extra buffer<->page copy that dominates large
+        // sequential transfers (e.g. zkey/ptau sections).
+        this.directReadThreshold = 1 << 20;
+        this.directWriteThreshold = 1 << 20;
         this.pages = {};
         this.pendingLoads = [];
         this.writing = false;
@@ -47,6 +53,8 @@ class FastFile {
         return P;
     }
 
+    // coverage: debug instrumentation, only enabled by hand (this.logHistory)
+    /* c8 ignore start */
     __statusPage(s, p) {
         const logEntry = [];
         const self=this;
@@ -83,6 +91,8 @@ class FastFile {
     }
 
 
+
+    /* c8 ignore stop */
 
     _triggerLoad() {
         const self = this;
@@ -150,7 +160,17 @@ class FastFile {
                         self.__statusPage("After Load (loaded): ", load.page);
                         return res;
                     }, (err) => {
-                        load.reject(err);
+                        // Reject EVERY waiter, not just the first: co-readers of the
+                        // same page were appended to page.loading (not to `load`) and
+                        // would otherwise await forever. Drop the page entirely so a
+                        // later retry re-reads it instead of queueing onto a dead
+                        // loading list.
+                        const page = self.pages[load.page];
+                        const loading = (page && page.loading) ? page.loading : [load];
+                        delete self.pages[load.page];
+                        for (let i=0; i<loading.length; i++) {
+                            loading[i].reject(err);
+                        }
                     }));
                     self.__statusPage("After Load (loading): ", load.page);
                 }
@@ -203,6 +223,13 @@ class FastFile {
                     return;
                 }, (err) => {
                     console.log("ERROR Writing: "+err);
+                    // Clear `writing` (a stuck flag pins the page forever and
+                    // blocks _tryClose) and record the error. write()/read()
+                    // surface it on their next call (fail fast) and close()
+                    // rejects with it -- previously it was only visible at
+                    // close(), so a prover that skipped close on error paths
+                    // silently produced a truncated/corrupt file.
+                    page.writing = false;
                     self.error = err;
                     self._tryClose();
                 }));
@@ -226,20 +253,47 @@ class FastFile {
         return -1;
     }
 
+    // Iterate the actually-cached pages (usually few) rather than every page
+    // index in [firstPage, lastPage], so the check stays O(cached pages) even
+    // for very large ranges / small page sizes.
+    _rangeHasCachedPages(pos, len) {
+        const firstPage = Math.floor(pos / this.pageSize);
+        const lastPage = Math.floor((pos + len - 1) / this.pageSize);
+        for (const k of Object.keys(this.pages)) {
+            const p = +k;
+            if (p >= firstPage && p <= lastPage) return true;
+        }
+        return false;
+    }
+
     async write(buff, pos) {
         if (buff.byteLength == 0) return;
         const self = this;
-        /*
-        if (buff.byteLength > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(buff.byteLength * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
-        */
+        if (self.error) throw self.error;
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+buff.byteLength;
         if (self.totalSize < pos + buff.byteLength) self.totalSize = pos + buff.byteLength;
         if (self.pendingClose)
             throw new Error("Writing a closing file");
+
+        // Direct-write fast path: for large writes to a region with no cached
+        // pages, write straight to disk, skipping the buff->page copy and the
+        // deferred page flush. Any cached page in range (even clean) would go
+        // stale after a direct write, so we fall back to the cached path then.
+        // ArrayBuffer.isView gate: fd.write needs a real TypedArray/DataView; a
+        // BigBuffer (paged, not a view) must use the cached path.
+        if (buff.byteLength >= self.directWriteThreshold && ArrayBuffer.isView(buff) && !self._rangeHasCachedPages(pos, buff.byteLength)) {
+            let done = 0;
+            while (done < buff.byteLength) {
+                const { bytesWritten } = await self.fd.write(buff, done, buff.byteLength - done, pos + done);
+                if (bytesWritten === 0) break;   // should not happen
+                done += bytesWritten;
+            }
+            const lastPage = Math.floor((pos + buff.byteLength - 1) / self.pageSize);
+            if (lastPage + 1 > self.totalPages) self.totalPages = lastPage + 1;
+            return;
+        }
+
         const firstPage = Math.floor(pos / self.pageSize);
         const lastPage = Math.floor((pos + buff.byteLength -1) / self.pageSize);
 
@@ -277,19 +331,56 @@ class FastFile {
         return buff;
     }
 
+    // Iterate the actually-cached pages (usually few) rather than every page
+    // index in [firstPage, lastPage], so the check stays O(cached pages) even
+    // for very large ranges / small page sizes.
+    _rangeHasDirtyPages(pos, len) {
+        const firstPage = Math.floor(pos / this.pageSize);
+        const lastPage = Math.floor((pos + len - 1) / this.pageSize);
+        for (const k of Object.keys(this.pages)) {
+            const p = +k;
+            if (p >= firstPage && p <= lastPage) {
+                const page = this.pages[p];
+                if (page.dirty || page.writing) return true;
+            }
+        }
+        return false;
+    }
+
     async readToBuffer(buffDst, offset, len, pos) {
         if (len == 0) {
             return;
         }
         const self = this;
-        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
-            const cacheSize = Math.floor(len * 1.1);
-            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
-        }
+        if (self.error) throw self.error;
         if (typeof pos == "undefined") pos = self.pos;
         self.pos = pos+len;
         if (self.pendingClose)
             throw new Error("Reading a closing file");
+
+        // Direct-read fast path: for large reads with no overlapping unwritten
+        // (dirty) pages, copy straight from disk into the destination buffer.
+        // This skips the page cache and the page->destination copy it incurs,
+        // which dominates large sequential reads (e.g. zkey/ptau sections).
+        // ArrayBuffer.isView gate: the direct path hands buffDst to fd.read, which
+        // needs a real TypedArray/DataView. A BigBuffer (paged, not a view) must
+        // go through the cached path, which copies into it via its own .set().
+        if (len >= self.directReadThreshold && ArrayBuffer.isView(buffDst) && !self._rangeHasDirtyPages(pos, len)) {
+            let toRead = (pos + len > self.totalSize) ? (self.totalSize - pos) : len;
+            if (toRead < 0) toRead = 0;
+            let done = 0;
+            while (done < toRead) {
+                const { bytesRead } = await self.fd.read(buffDst, offset + done, toRead - done, pos + done);
+                if (bytesRead === 0) break;   // EOF
+                done += bytesRead;
+            }
+            return;
+        }
+
+        if (len > self.pageSize*self.maxPagesLoaded*0.8) {
+            const cacheSize = Math.floor(len * 1.1);
+            this.maxPagesLoaded = Math.floor( cacheSize / self.pageSize)+1;
+        }
         const firstPage = Math.floor(pos / self.pageSize);
         const lastPage = Math.floor((pos + len -1) / self.pageSize);
 
@@ -300,8 +391,16 @@ class FastFile {
 
         let p = firstPage;
         let o = pos % self.pageSize;
-        // Remaining bytes to read
+        // Remaining bytes to read (clamped to EOF: a read past the end of a
+        // truncated/short file reads fewer bytes than requested).
         let r = pos + len > self.totalSize ? len - (pos + len - self.totalSize): len;
+        // Bytes already written to buffDst -- tracked independently of `r`
+        // (which shrinks on EOF-clamping) so the destination offset stays
+        // correct. Previously computed as `offset + len - r`: with `r`
+        // pre-clamped below `len`, that put the first bytes read at a
+        // nonzero offset instead of the real EOF-truncated tail, silently
+        // shifting valid data to the wrong position in the output buffer.
+        let done = 0;
         while (r>0) {
             await pagePromises[p - firstPage];
             self.__statusPage("After Await (read): ", p);
@@ -309,12 +408,13 @@ class FastFile {
             // bytes to copy from this page
             const l = (o+r > self.pageSize) ? (self.pageSize -o) : r;
             const srcView = new Uint8Array(self.pages[p].buff.buffer, self.pages[p].buff.byteOffset + o, l);
-            buffDst.set(srcView, offset+len-r);
+            buffDst.set(srcView, offset+done);
             self.pages[p].pendingOps --;
 
             self.__statusPage("After Op done: ", p);
 
             r = r-l;
+            done = done+l;
             p ++;
             o = 0;
             if (self.pendingLoads.length>0) setImmediate(self._triggerLoad.bind(self));
@@ -330,6 +430,7 @@ class FastFile {
         if (!self.pendingClose) return;
         if (self.error) {
             self.pendingCloseReject(self.error);
+            return;
         }
         const p = self._getDirtyPage();
         if ((p>=0) || (self.writing) || (self.reading) || (self.pendingLoads.length>0)) return;
@@ -338,9 +439,11 @@ class FastFile {
 
     close() {
         const self = this;
-        if (self.pendingClose)
-            throw new Error("Closing the file twice");
-        return new Promise((resolve, reject) => {
+        // Idempotent, matching fs.promises.FileHandle.close(): repeated calls
+        // return the same promise, so cleanup code (e.g. a finally block) can
+        // close unconditionally. Reads/writes after close still throw.
+        if (self.closePromise) return self.closePromise;
+        self.closePromise = new Promise((resolve, reject) => {
             self.pendingClose = resolve;
             self.pendingCloseReject = reject;
             self._tryClose();
@@ -350,6 +453,7 @@ class FastFile {
             self.fd.close();
             throw (err);
         });
+        return self.closePromise;
     }
 
     async discard() {

@@ -208,6 +208,13 @@ class BigMemFile {
             }
 
             let readLength = Math.min(fixedSize, self.o.data[currentPage].length - offsetOnPage);
+            if (readLength <= 0) {
+                // EOF without a terminator: the string ends at the end of the
+                // data (matches the rangefile backend). This used to spin
+                // forever re-reading an empty window.
+                self.pos = currentPosition;
+                return str;
+            }
             const dataArray = new Uint8Array(self.o.data[currentPage].buffer, offsetOnPage, readLength);
 
             let indexEndOfString = dataArray.findIndex(element => element === 0);

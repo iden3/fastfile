@@ -1,11 +1,39 @@
 import { open } from "./osfile.js";
 import * as memFile from "./memfile.js";
 import * as bigMemFile from "./bigmemfile.js";
+import * as httpFile from "./httpfile.js";
+import * as blobFile from "./blobfile.js";
 import { O_TRUNC, O_CREAT, O_RDWR, O_EXCL, O_RDONLY } from "constants";
 
 
 const DEFAULT_CACHE_SIZE = (1 << 16);
 const DEFAULT_PAGE_SIZE = (1 << 13);
+
+// Robust Node detection that never throws (unlike `process.browser`, which is a
+// webpack-ism and is undefined under Vite/esbuild/SES).
+const isNode = typeof process !== "undefined" && process.versions != null && process.versions.node != null;
+
+// The b/c arguments are the caller's cacheSize/pageSize hints. Historically
+// they were only applied while coercing string (and Blob) sources into
+// descriptor objects, so a caller passing {type: "file"|"http"} without
+// explicit sizes silently fell back to the small built-in defaults even when
+// it supplied tuned hints for the string case. Fill exactly the fields the
+// descriptor leaves undefined; never mutate the caller's object.
+function withSizeFallbacks(o, b, c) {
+    if (typeof o !== "object" || o === null) return o;
+    // Only the page-cache backends consume these sizes. mem/bigMem
+    // descriptors must pass through UNTOUCHED and by identity: the mem
+    // backend stores the written data on the caller's object (o.data), so
+    // handing a copy to createNew would leave the caller's descriptor empty.
+    if (o.type !== "file" && o.type !== "http" && o.type !== "blob") return o;
+    const needCache = o.cacheSize === undefined && b !== undefined;
+    const needPage = o.pageSize === undefined && c !== undefined;
+    if (!needCache && !needPage) return o;
+    const res = Object.assign({}, o);
+    if (needCache) res.cacheSize = b;
+    if (needPage) res.pageSize = c;
+    return res;
+}
 
 
 export async function createOverride(o, b, c) {
@@ -17,6 +45,7 @@ export async function createOverride(o, b, c) {
             pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return await open(o.fileName, O_TRUNC | O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
@@ -24,7 +53,7 @@ export async function createOverride(o, b, c) {
     } else if (o.type == "bigMem") {
         return bigMemFile.createNew(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
@@ -37,6 +66,7 @@ export function createNoOverride(o, b, c) {
             pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return open(o.fileName, O_TRUNC | O_CREAT | O_RDWR | O_EXCL, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
@@ -44,7 +74,7 @@ export function createNoOverride(o, b, c) {
     } else if (o.type == "bigMem") {
         return bigMemFile.createNew(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
@@ -55,20 +85,27 @@ export async function readExisting(o, b, c) {
             data: o
         };
     }
-    if (process.browser) {
-        if (typeof o === "string") {
-            const buff = await fetch(o).then(function (res) {
-                return res.arrayBuffer();
-            }).then(function (ab) {
-                return new Uint8Array(ab);
-            });
+    if (typeof Blob !== "undefined" && o instanceof Blob) {
+        o = {
+            type: "blob",
+            blob: o,
+            cacheSize: b,
+            pageSize: c
+        };
+    }
+    if (typeof o === "string") {
+        // URLs (and, in the browser, any string -- historically fetched
+        // whole) go through the http backend: it streams via Range requests
+        // when the server supports them and falls back to buffering the
+        // full body (the previous behavior) when it does not.
+        if (!isNode || /^https?:\/\//i.test(o)) {
             o = {
-                type: "mem",
-                data: buff
+                type: "http",
+                url: o,
+                cacheSize: b,
+                pageSize: c
             };
-        }
-    } else {
-        if (typeof o === "string") {
+        } else {
             o = {
                 type: "file",
                 fileName: o,
@@ -77,14 +114,19 @@ export async function readExisting(o, b, c) {
             };
         }
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return await open(o.fileName, O_RDONLY, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
         return await memFile.readExisting(o);
     } else if (o.type == "bigMem") {
         return await bigMemFile.readExisting(o);
+    } else if (o.type == "http") {
+        return await httpFile.readExisting(o);
+    } else if (o.type == "blob") {
+        return blobFile.readExisting(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
@@ -97,6 +139,7 @@ export function readWriteExisting(o, b, c) {
             pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return open(o.fileName, O_CREAT | O_RDWR, o.cacheSize, o.pageSize);
     } else if (o.type == "mem") {
@@ -104,7 +147,7 @@ export function readWriteExisting(o, b, c) {
     } else if (o.type == "bigMem") {
         return bigMemFile.readWriteExisting(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }
 
@@ -117,6 +160,7 @@ export function readWriteExistingOrCreate(o, b, c) {
             pageSize: c || DEFAULT_PAGE_SIZE
         };
     }
+    o = withSizeFallbacks(o, b, c);
     if (o.type == "file") {
         return open(o.fileName, O_CREAT | O_RDWR | O_EXCL, o.cacheSize);
     } else if (o.type == "mem") {
@@ -124,6 +168,6 @@ export function readWriteExistingOrCreate(o, b, c) {
     } else if (o.type == "bigMem") {
         return bigMemFile.readWriteExisting(o);
     } else {
-        throw new Error("Invalid FastFile type: " + o.type);
+        throw new Error("Invalid FastFile type: "+o.type);
     }
 }

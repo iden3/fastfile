@@ -67,3 +67,7 @@ tmp
 # Workspace files are user-specific
 *.sublime-workspace
 
+
+# vitest browser-mode artifacts (failure screenshots, attachments)
+.vitest-attachments/
+test/__screenshots__/
