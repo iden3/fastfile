@@ -32,7 +32,7 @@
   "devDependencies": {
     "eslint": "^8.17.0",
     "ffjavascript": "^0.3.0",
-    "mocha": "^10.0.0",
+    "mocha": "^12.0.0",
     "chai": "^4.3.6",
     "chai-as-promised": "^7.1.1",
     "rollup": "^2.20.0"
